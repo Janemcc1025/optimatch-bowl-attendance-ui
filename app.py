@@ -769,6 +769,77 @@ if st.button("Run Prediction"):
         st.write("- Premium P4 vs. P4 matchup")
     if avg_tvi > 60:
         st.write("- Highly engaged, traveling fanbases")
+    # =====================================================
+    # CROWD COMPOSITION MODEL
+    # =====================================================
+    st.subheader("🧍‍♂️ Crowd Composition Breakdown")
+
+    # --- Traveling Fans ---
+    # Derived from travel_pct used in Market Impact Score
+    traveling_fans = travel_pct
+
+    # --- Local Alumni ---
+    alumni_factor = 0.0
+    # "Local" alumni dispersion = more local turnout
+    if "local" in str(row1.get("Alumni Dispersion", "")).lower():
+        alumni_factor += 0.15
+    if "local" in str(row2.get("Alumni Dispersion", "")).lower():
+        alumni_factor += 0.15
+
+    # "Regional" alumni = moderate local presence
+    if "regional" in str(row1.get("Alumni Dispersion", "")).lower():
+        alumni_factor += 0.08
+    if "regional" in str(row2.get("Alumni Dispersion", "")).lower():
+        alumni_factor += 0.08
+
+    # "National" alumni = low local presence, travel instead
+    if "national" in str(row1.get("Alumni Dispersion", "")).lower():
+        alumni_factor += 0.03
+    if "national" in str(row2.get("Alumni Dispersion", "")).lower():
+        alumni_factor += 0.03
+
+    alumni_factor = min(alumni_factor, 0.35)  # cap for realism
+
+    # --- Student Population ---
+    # Very small for neutral-site bowls unless close
+    student_factor = 0.02
+    if team1_miles < 150:
+        student_factor += 0.03
+    if team2_miles < 150:
+        student_factor += 0.03
+
+    # --- Remaining = General Public / Neutral Fans ---
+    general_public = 1.0 - (traveling_fans + alumni_factor + student_factor)
+    general_public = max(0.05, general_public)  # prevent negative or unrealistic low
+
+    # --- Normalize ---
+    total = traveling_fans + alumni_factor + student_factor + general_public
+    traveling_fans /= total
+    alumni_factor /= total
+    student_factor /= total
+    general_public /= total
+
+    # ---- Display ----
+    st.markdown(f"**Traveling Fans:** {traveling_fans*100:.1f}%")
+    st.markdown(f"**Local Alumni:** {alumni_factor*100:.1f}%")
+    st.markdown(f"**Students:** {student_factor*100:.1f}%")
+    st.markdown(f"**General Public / Neutral Fans:** {general_public*100:.1f}%")
+
+    # Optional: Pie Chart
+    comp_df = pd.DataFrame({
+        "Category": ["Traveling Fans", "Local Alumni", "Students", "General Public"],
+        "Percentage": [traveling_fans, alumni_factor, student_factor, general_public]
+    })
+
+    st.subheader("Crowd Composition Visualization")
+    st.pyplot(plt.figure(figsize=(4,4)))
+    plt.pie(
+        comp_df["Percentage"], 
+        labels=comp_df["Category"], 
+        autopct="%1.1f%%", 
+        startangle=90
+    )
+    plt.axis("equal")
 
     
     # =====================================================
