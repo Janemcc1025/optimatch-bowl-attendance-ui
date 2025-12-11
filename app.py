@@ -301,10 +301,58 @@ else:
     ap_strength_norm = 0.0
 
 # =====================================================
+# DRIVING + FLYING TIME CALCULATIONS
+# =====================================================
+
+def estimate_driving_hours(miles):
+    if miles <= 0:
+        return None
+    if miles < 300:
+        return miles / 55
+    elif miles < 800:
+        return miles / 62
+    else:
+        return (miles / 65) + 10  # adds overnight stop
+
+def estimate_flying_hours(miles):
+    if miles <= 0:
+        return None
+    return (miles / 250) + 1.7  # gate-to-gate + airport overhead
+
+def fmt(hours):
+    return f"{hours:.1f} hrs" if hours is not None else "N/A"
+
+# compute values for both teams
+t1_drive_hours = estimate_driving_hours(team1_miles)
+t2_drive_hours = estimate_driving_hours(team2_miles)
+t1_flight_hours = estimate_flying_hours(team1_miles)
+t2_flight_hours = estimate_flying_hours(team2_miles)
+
+
+# =====================================================
 # TRAVEL MAP + ROUTE LINES
 # =====================================================
 
 st.subheader("🗺️ Travel Routes & Estimated Travel Time")
+
+# ============================
+# ESTIMATED TRAVEL TIME PANEL
+# ============================
+
+st.markdown("### ⏱ Estimated Travel Time")
+
+colA, colB = st.columns(2)
+
+with colA:
+    st.markdown(f"**{team1} → {venue_choice}**")
+    st.write(f"Driving Time: {fmt(t1_drive_hours)}")
+    st.write(f"Flying Time: {fmt(t1_flight_hours)}")
+
+with colB:
+    st.markdown(f"**{team2} → {venue_choice}**")
+    st.write(f"Driving Time: {fmt(t2_drive_hours)}")
+    st.write(f"Flying Time: {fmt(t2_flight_hours)}")
+
 
 line_data = [
     {
