@@ -17,22 +17,22 @@ teams = pd.read_csv("2025 Bowl Games - UI Team Lookup.csv")
 venues = pd.read_csv("2025 Bowl Games - UI Venue Lookup.csv")
 bowl_tiers = pd.read_csv("2025 Bowl Games - Bowl Tiers.csv")
 
-# Clean whitespace in headers
+# Clean whitespace
 teams.columns = teams.columns.str.strip()
 venues.columns = venues.columns.str.strip()
 bowl_tiers.columns = bowl_tiers.columns.str.strip()
 
 TEAM_COL = "Team Name"
-BOWL_COL = "Football Stadium"
+BOWL_COL = "Football Stadium"   # ← FIXED HERE
 
 team_list = sorted(teams[TEAM_COL].unique())
 bowl_list = sorted(venues[BOWL_COL].unique())
 
 # -----------------------------------
-# HELPER: DISTANCE CALCULATION
+# DISTANCE CALCULATION
 # -----------------------------------
 def haversine(lat1, lon1, lat2, lon2):
-    R = 3958.8  # miles
+    R = 3958.8
     dLat = radians(lat2 - lat1)
     dLon = radians(lon2 - lon1)
     lat1 = radians(lat1)
@@ -50,14 +50,15 @@ st.title("🏈 Optimatch Bowl Attendance Predictor")
 st.write("Predict bowl attendance using CSMG’s Gradient Boosted Model + Optimatch feature engine.")
 
 # -----------------------------------
-# SELECT BOWL
+# SELECT BOWL (STADIUM)
 # -----------------------------------
-st.header("Select Bowl Game")
-bowl_choice = st.selectbox("Bowl Game", bowl_list)
+st.header("Select Bowl Venue (Football Stadium)")
+
+bowl_choice = st.selectbox("Football Stadium", bowl_list)
 
 venue_row = venues[venues[BOWL_COL] == bowl_choice].iloc[0]
 
-venue_name = venue_row["Venue"]
+venue_name = venue_row[BOWL_COL]
 venue_capacity = venue_row["Venue Capacity"]
 venue_lat = venue_row["Venue Lat"]
 venue_lon = venue_row["Venue Lon"]
@@ -86,12 +87,9 @@ row2 = teams[teams[TEAM_COL] == team2].iloc[0]
 # -----------------------------------
 # FEATURE ENGINEERING
 # -----------------------------------
-
-# Distance
 team1_miles = haversine(row1["Lat"], row1["Lon"], venue_lat, venue_lon)
 team2_miles = haversine(row2["Lat"], row2["Lon"], venue_lat, venue_lon)
 
-# Wins & AP rankings
 avg_wins = (row1["Wins"] + row2["Wins"]) / 2
 total_wins = row1["Wins"] + row2["Wins"]
 
@@ -100,15 +98,12 @@ avg_ap = np.mean(ap_values) if ap_values else 0
 best_ap = min(ap_values) if ap_values else 0
 worst_ap = max(ap_values) if ap_values else 0
 
-# Distance features
 distance_min = min(team1_miles, team2_miles)
 distance_imbalance = abs(team1_miles - team2_miles)
 avg_distance = (team1_miles + team2_miles) / 2
 
-# Local Team
 local_flag = 1 if distance_min < 75 else 0
 
-# Matchup Power Score
 power_confs = ["SEC", "Big 10", "Big 12", "ACC"]
 conf1 = row1["Conference"]
 conf2 = row2["Conference"]
@@ -120,7 +115,8 @@ elif conf1 in power_confs or conf2 in power_confs:
 else:
     matchup_power = 0
 
-# Bowl Tier & Ownership
+# Bowl Tier & Ownership lookup —
+# Match bowl tiers using the stadium name
 bowl_info = bowl_tiers[bowl_tiers[BOWL_COL] == bowl_choice].iloc[0]
 bowl_tier = bowl_info["Bowl Tier"]
 bowl_owner = bowl_info["Bowl Ownership"]
@@ -132,15 +128,13 @@ try:
 except:
     weekend_flag = 0
 
-# Combined Fanbase log
 combined_fanbase = row1["Fanbase Size"] + row2["Fanbase Size"]
 combined_fanbase_log = np.log1p(combined_fanbase)
 
-# Total AP Strength
 ap_strength_score = row1["AP Strength"] + row2["AP Strength"]
 
 # -----------------------------------
-# BUILD INPUT FEATURE VECTOR
+# BUILD MODEL INPUT
 # -----------------------------------
 feature_row = pd.DataFrame([[
 
@@ -189,21 +183,25 @@ st.metric("Projected % Filled", f"{pct_filled:.1%}")
 # -----------------------------------
 st.subheader("Key Driver Summary")
 
-driver_notes = []
+drivers = []
 
 if distance_min < 150:
-    driver_notes.append("At least one team is within strong travel range (<150 miles).")
+    drivers.append("At least one team is within strong travel distance (<150 miles).")
+
 if distance_imbalance > 400:
-    driver_notes.append("Large travel imbalance affects turnout.")
+    drivers.append("Significant travel imbalance may affect turnout.")
+
 if combined_fanbase_log > np.log1p(teams["Fanbase Size"].median()):
-    driver_notes.append("Large combined fanbase adds demand potential.")
+    drivers.append("Large combined fanbase boosts attendance potential.")
+
 if matchup_power == 2:
-    driver_notes.append("Power vs. Power matchup increases national interest.")
+    drivers.append("Power vs. Power matchup increases national attention.")
+
 if local_flag == 1:
-    driver_notes.append("A local team significantly lifts attendance.")
+    drivers.append("A local team strongly lifts attendance potential.")
 
-if not driver_notes:
-    driver_notes.append("This matchup aligns with typical bowl attendance patterns.")
+if not drivers:
+    drivers.append("This matchup reflects typical bowl attendance patterns.")
 
-for note in driver_notes:
-    st.write("• " + note)
+for d in drivers:
+    st.write("• " + d)
