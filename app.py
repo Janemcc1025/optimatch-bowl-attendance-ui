@@ -14,7 +14,7 @@ feature_cols = joblib.load("feature_columns.pkl")
 # =====================================================
 # IMPORTANT: make sure this filename matches your repo.
 # It should be the same "future" file you used in Colab:
-# "2025 Bowl Games - 2025 Bowl Games (3).csv" or similar.
+# "2025 Bowl Games - 2025 Bowl Games (8).csv" or similar.
 BOWL_FILE = "2025 Bowl Games - 2025 Bowl Games.csv"
 
 bowl_df = pd.read_csv(BOWL_FILE)
