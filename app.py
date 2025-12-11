@@ -291,7 +291,7 @@ pct_filled = final_pred / venue_capacity
     # -----------------------------------
     # KEY DRIVER SUMMARY
     # -----------------------------------
-    st.subheader("Key Driver Summary")
+st.subheader("Key Driver Summary")
 
     drivers = []
 
