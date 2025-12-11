@@ -1,10 +1,4 @@
-import plotly.express as px
-import plotly.graph_objects as go
 
-st.set_page_config(
-    page_title="Optimatch Bowl Attendance – Single Game",
-    layout="wide",
-)
 
 import streamlit as st
 import pandas as pd
