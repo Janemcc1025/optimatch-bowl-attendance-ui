@@ -755,7 +755,7 @@ if st.button("Run Prediction"):
     # SAVE CONTEXT FOR OTHER PANELS
     # =====================================================
     if "scenario_history" not in st.session_state:
-    st.session_state["scenario_history"] = []
+st.session_state["scenario_history"] = []
 
 st.session_state["scenario_history"].append(
     {
