@@ -170,29 +170,6 @@ def estimate_travel_hours(miles: float) -> float:
         # assume commercial flight + airport overhead
         return 3.0 + 2.5
 
-# =====================================================
-# VENUE ACCESSIBILITY SCORE PANEL
-# =====================================================
-st.subheader("📍 Venue Accessibility Score")
-
-st.metric("Accessibility Score", f"{venue_access_score}/100")
-
-st.write("### Key Accessibility Factors")
-st.write(f"- Nearest major airport: **{nearest_airport_name}**")
-st.write(f"- Airport distance to venue: **{airport_distance:.1f} miles**")
-st.write(f"- Avg team driving distance: **{int((team1_miles + team2_miles)/2)} miles**")
-st.write(f"- Stadium capacity: **{venue_capacity:,} seats**")
-st.write(f"- City: **{venue_city}, {venue_state}**")
-
-if venue_access_score >= 80:
-    st.success("This venue offers *excellent* accessibility for fans and travel logistics.")
-elif venue_access_score >= 65:
-    st.info("This venue provides *strong* overall accessibility.")
-elif venue_access_score >= 50:
-    st.warning("This venue has *moderate* accessibility — travel may require planning.")
-else:
-    st.error("This venue is *challenging to access* for most fanbases.")
-
 
 # =====================================================
 # LOAD MODEL + FEATURE LIST
@@ -303,17 +280,6 @@ venue_lat = safe_num(venue_row["Lat"])
 venue_lon = safe_num(venue_row["Lon"])
 venue_city = venue_row["City"]
 venue_state = venue_row["State"]
-
-nearest_airport_name, airport_distance = find_nearest_airport(venue_lat, venue_lon)
-
-venue_access_score = compute_venue_accessibility_score(
-    venue_capacity,
-    team1_miles,
-    team2_miles,
-    venue_city,
-    venue_state,
-    airport_distance
-)
 
 
 # approximate venue tier from historical data if available
@@ -675,6 +641,47 @@ if st.button("Run Prediction"):
 
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
+
+# =====================================================
+# 📍 VENUE ACCESSIBILITY SCORE — INSERT HERE
+# =====================================================
+
+# Find nearest airport to the venue
+nearest_airport_name, airport_distance = find_nearest_airport(
+    venue_lat,
+    venue_lon
+)
+
+# Compute accessibility score
+venue_access_score = compute_venue_accessibility_score(
+    venue_capacity,
+    team1_miles,
+    team2_miles,
+    venue_city,
+    venue_state,
+    airport_distance
+)
+
+# Display results
+st.subheader("📍 Venue Accessibility Score")
+st.metric("Accessibility Score", f"{venue_access_score}/100")
+
+st.write("### Key Accessibility Factors")
+st.write(f"- Nearest airport: **{nearest_airport_name}**")
+st.write(f"- Distance from venue to airport: **{airport_distance:.1f} miles**")
+st.write(f"- Avg team distance traveled: **{(team1_miles + team2_miles)/2:.0f} miles**")
+st.write(f"- Stadium capacity: **{venue_capacity:,} seats**")
+st.write(f"- City: **{venue_city}, {venue_state}**")
+
+if venue_access_score >= 80:
+    st.success("This venue offers excellent accessibility for fans and travel logistics.")
+elif venue_access_score >= 65:
+    st.info("This venue has strong overall accessibility.")
+elif venue_access_score >= 50:
+    st.warning("This venue has moderate accessibility — travel may require planning.")
+else:
+    st.error("This venue is challenging for most fans to reach.")
+
 
     # =====================================================
     # TEAM VISITATION INDEX (0–100)
