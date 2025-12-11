@@ -591,6 +591,83 @@ if st.button("Run Prediction"):
     avg_tvi = (t1_tvi + t2_tvi) / 2
     st.write(f"**Overall Matchup Travel Expectation:** {avg_tvi:.1f} / 100")
 
+    # =====================================================
+    # MARKET IMPACT SCORE (MIS)
+    # =====================================================
+    st.subheader("🏙️ Market Impact Score")
+
+    # ---- Estimate % travelling fans ----
+    # Based on distance, TVI, alumni dispersion, local flag
+    travel_pct = 0.0
+    if avg_distance < 150:
+        travel_pct = 0.25  # more local turnout
+    elif avg_distance < 300:
+        travel_pct = 0.40
+    elif avg_distance < 700:
+        travel_pct = 0.55
+    else:
+        travel_pct = 0.70
+
+    # Adjust based on TVI
+    travel_pct *= (avg_tvi / 100)
+
+    # Adjust if a team is local
+    if local_flag == 1:
+        travel_pct *= 0.8  # fewer hotel nights expected
+
+    travel_pct = max(0.05, min(0.85, travel_pct))
+
+    # ---- Estimate visitor nights ----
+    visitor_attendance = final_pred * travel_pct
+    # assume avg 1.7 nights per traveler (industry benchmark)
+    avg_nights = 1.7
+    visitor_nights = visitor_attendance * avg_nights
+
+    # ---- Market Impact Score (0–100) ----
+    mis = 50
+
+    # big brands increase tourism lift
+    if t1_brand > 70 or t2_brand > 70:
+        mis += 10
+    elif t1_brand > 50 or t2_brand > 50:
+        mis += 5
+
+    # matchup entertainment value
+    if matchup_power == 2:
+        mis += 10
+    elif matchup_power == 1:
+        mis += 4
+
+    # travel intensity
+    if avg_distance > 900:
+        mis += 12
+    elif avg_distance > 600:
+        mis += 6
+    else:
+        mis += 3
+
+    # bowl tier effect
+    if bowl_tier >= 2:
+        mis += 7
+
+    # clamp between 0–100
+    mis = max(0, min(100, mis))
+
+    # ---- Display ----
+    st.metric("Market Impact Score", f"{mis} / 100")
+    st.write(f"Estimated Traveling Fans: **{visitor_attendance:,.0f}**")
+    st.write(f"Estimated Visitor Nights: **{visitor_nights:,.0f}**")
+    
+    # classification
+    if mis >= 85:
+        st.write("Projected Market Impact: **Very High**")
+    elif mis >= 70:
+        st.write("Projected Market Impact: **High**")
+    elif mis >= 55:
+        st.write("Projected Market Impact: **Moderate**")
+    else:
+        st.write("Projected Market Impact: **Limited**")
+
     
     # =====================================================
     # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
