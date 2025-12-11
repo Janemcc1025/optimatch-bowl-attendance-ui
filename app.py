@@ -14,7 +14,9 @@ PRED_YEAR = 2025  # using 2025 stats for predictions
 TEAM_FILE = "2025 Bowl Games - UI Team Lookup.csv"
 VENUE_FILE = "2025 Bowl Games - UI Venue Lookup.csv"
 BOWL_TIERS_FILE = "2025 Bowl Games - Bowl Tiers.csv"
-CALIB_FILE = "2025 Bowl Games - 2022-2024 Bowl Games (7).csv"  # your 2025 master
+
+# HISTORICAL CALIBRATION: 2022–2024 ACTUAL GAMES
+CALIB_FILE = "2025 Bowl Games - 2022-2024 Bowl Games (7).csv"
 
 MODEL_FILE = "attendance_model.pkl"
 FEATURE_COLS_FILE = "feature_columns.pkl"
@@ -74,13 +76,13 @@ feature_cols = joblib.load(FEATURE_COLS_FILE)
 teams = pd.read_csv(TEAM_FILE)
 venues = pd.read_csv(VENUE_FILE)
 bowl_tiers = pd.read_csv(BOWL_TIERS_FILE)
-calib = pd.read_csv(CALIB_FILE)
+calib = pd.read_csv(CALIB_FILE)  # 2022–2024 historic bowls
 
 for df in (teams, venues, bowl_tiers, calib):
     df.columns = df.columns.str.strip()
 
 # =====================================================
-# DERIVE SCALERS / THRESHOLDS FROM 2025 MASTER
+# DERIVE SCALERS / THRESHOLDS FROM HISTORICAL DATA
 # =====================================================
 
 # Distance MinMax scaling
@@ -140,8 +142,7 @@ st.set_page_config(page_title="Optimatch Bowl Attendance Predictor", layout="wid
 st.title("🏈 Optimatch Bowl Attendance Predictor")
 st.write(
     "Predict bowl attendance using CSMG’s Gradient Boosted model and Optimatch feature engine. "
-    "This UI recomputes all model features from team, bowl, and venue lookups, calibrated to your "
-    "original 2022–2025 projections."
+    "This UI recomputes model features from team, bowl, and venue lookups, calibrated on 2022–2024 bowl games."
 )
 
 teams_list = sorted(teams[TEAM_COL].unique())
@@ -171,6 +172,7 @@ venue_lon = safe_num(venue_row["Lon"])
 venue_city = venue_row["City"]
 venue_state = venue_row["State"]
 
+# approximate venue tier from historical data if available
 calib_for_bowl = calib[calib["Bowl Game Name"] == bowl_choice]
 if "Venue Tier" in calib.columns and not calib_for_bowl.empty:
     venue_tier = safe_num(calib_for_bowl["Venue Tier"].iloc[0])
@@ -601,30 +603,25 @@ if st.button("Run Prediction"):
 
     interest_index = 5.0
 
-    # big brands
     brand_count = sum(any(b.lower() in t.lower() for b in big_brands) for t in [team1, team2])
     if brand_count == 2:
         interest_index += 2.0
     elif brand_count == 1:
         interest_index += 1.0
 
-    # matchup power
     if matchup_power == 2:
         interest_index += 1.0
     elif matchup_power == 1:
         interest_index += 0.5
 
-    # bowl tier
     if bowl_tier >= 2:
         interest_index += 0.5
 
-    # conference pull
     if SEC_present:
         interest_index += 0.5
     if B10_present:
         interest_index += 0.5
 
-    # strong AP strength
     if ap_strength_score > np.percentile(ap_raw.dropna(), 75):
         interest_index += 0.5
 
@@ -659,7 +656,6 @@ if st.button("Run Prediction"):
 
     drivers = []
 
-    # Distance-based
     if distance_min < 100:
         drivers.append("At least one team is very close to the venue (<100 miles), which strongly boosts attendance due to drive-in ease.")
     elif distance_min < 250:
@@ -672,7 +668,6 @@ if st.button("Run Prediction"):
     if distance_imbalance > 400:
         drivers.append("There is a major travel imbalance between fanbases, meaning one school may dominate in-person turnout.")
 
-    # Big brands
     brands_present = []
     for t in [team1, team2]:
         for brand in big_brands:
@@ -682,14 +677,12 @@ if st.button("Run Prediction"):
         bp_str = ", ".join(sorted(set(brands_present)))
         drivers.append(f"National brands present ({bp_str}). These programs traditionally travel well and elevate overall demand.")
 
-    # Fanbase size
     if calib_combined_log_median is not None:
         if combined_fanbase_log > calib_combined_log_median + 0.2:
             drivers.append("The combined fanbase size is significantly larger than typical FBS matchups, supporting stronger turnout.")
         elif combined_fanbase_log < calib_combined_log_median - 0.2:
             drivers.append("This matchup features smaller fanbases, which historically leads to more modest attendance figures.")
 
-    # Matchup quality
     if matchup_power == 2:
         drivers.append("Power vs. Power matchup substantially increases national interest and in-person attendance.")
     elif matchup_power == 1:
@@ -697,7 +690,6 @@ if st.button("Run Prediction"):
     else:
         drivers.append("Group of Five vs Group of Five matchups typically rely more on regional proximity for attendance strength.")
 
-    # Conference brand
     if SEC_present:
         drivers.append("An SEC program is participating — SEC teams historically generate high demand and strong travel behavior.")
     if B10_present:
@@ -707,11 +699,9 @@ if st.button("Run Prediction"):
     if B12_present:
         drivers.append("A Big 12 program adds solid regional and national interest.")
 
-    # Venue tier
     if venue_tier >= 2:
         drivers.append("This game is hosted in a high-tier venue, enhancing the bowl experience and spectator draw.")
 
-    # Alumni dispersion impact
     t1_alumni = str(row1.get("Alumni Dispersion", "")).lower()
     t2_alumni = str(row2.get("Alumni Dispersion", "")).lower()
 
@@ -752,23 +742,21 @@ if st.button("Run Prediction"):
         st.write("• " + d)
 
     # =====================================================
-    # SAVE CONTEXT FOR OTHER PANELS
+    # SAVE CONTEXT FOR OTHER PANELS & SCENARIO HISTORY
     # =====================================================
-if "scenario_history" not in st.session_state:
-st.session_state["scenario_history"] = []
 
-st.session_state["scenario_history"].append(
-    {
-        "features": row_data,
-        "prediction": final_pred,
-        "team1": team1,
-        "team2": team2,
-        "bowl": bowl_choice,
-        "venue": venue_choice,
-    }
-)
-
-    st.session_state["last_prediction"] = final_pred
+    if "scenario_history" not in st.session_state:
+        st.session_state["scenario_history"] = []
+    st.session_state["scenario_history"].append(
+        {
+            "features": row_data,
+            "prediction": final_pred,
+            "team1": team1,
+            "team2": team2,
+            "bowl": bowl_choice,
+            "venue": venue_choice,
+        }
+    )
 
     st.session_state["scenario_context"] = {
         "bowl": bowl_choice,
@@ -795,7 +783,6 @@ st.session_state["scenario_history"].append(
 st.header("Similar Historical Matchups")
 
 if "scenario_history" in st.session_state and len(st.session_state["scenario_history"]) > 0:
-    # let user choose which scenario to analyze
     names = [
         f"{s['team1']} vs {s['team2']} ({s['bowl']})"
         for s in st.session_state["scenario_history"]
@@ -803,9 +790,6 @@ if "scenario_history" in st.session_state and len(st.session_state["scenario_his
     selected = st.selectbox("Select a scenario to compare", names)
     idx = names.index(selected)
     current_features = st.session_state["scenario_history"][idx]["features"]
-else:
-    st.write("Run a prediction to enable scenario comparison.")
-    current_features = None
 
     sim_cols = [
         "Avg Distace Traveled",
@@ -814,37 +798,44 @@ else:
         "Bowl Tier"
     ]
 
-    calib_sim = calib_sim[calib_sim["Year"] < 2025]
     calib_sim = calib.copy()
     for c in sim_cols:
         calib_sim[c] = pd.to_numeric(calib_sim[c], errors="coerce")
 
     calib_sim = calib_sim.dropna(subset=sim_cols)
 
-    cur_vec = np.array([current_features[c] for c in sim_cols], dtype=float)
-    hist_mat = calib_sim[sim_cols].to_numpy(dtype=float)
+    # Only past years (< 2025)
+    if "Year" in calib_sim.columns:
+        calib_sim = calib_sim[calib_sim["Year"] < 2025]
 
-    dists = np.linalg.norm(hist_mat - cur_vec, axis=1)
-    calib_sim["sim_distance"] = dists
+    if not calib_sim.empty:
+        cur_vec = np.array([current_features[c] for c in sim_cols], dtype=float)
+        hist_mat = calib_sim[sim_cols].to_numpy(dtype=float)
 
-    top_sim = calib_sim.nsmallest(3, "sim_distance")
+        dists = np.linalg.norm(hist_mat - cur_vec, axis=1)
+        calib_sim["sim_distance"] = dists
 
-    if not top_sim.empty:
-        display_cols = [
-            "Year",
-            "Bowl Game Name",
-            "Team 1",
-            "Team 2",
-            "Attendance",
-            "Bowl Avg Attendees"
-        ]
-        existing_cols = [c for c in display_cols if c in top_sim.columns]
-        st.write("Most similar historical games based on distance, fanbase size, bowl tier, and matchup type:")
-        st.dataframe(top_sim[existing_cols])
+        top_sim = calib_sim.nsmallest(3, "sim_distance")
+
+        if not top_sim.empty:
+            display_cols = [
+                "Year",
+                "Bowl Game Name",
+                "Team 1",
+                "Team 2",
+                "Attendance",
+                "Actual Attendance",
+                "Bowl Avg Attendees"
+            ]
+            existing_cols = [c for c in display_cols if c in top_sim.columns]
+            st.write("Most similar historical games based on distance, fanbase size, bowl tier, and matchup type:")
+            st.dataframe(top_sim[existing_cols])
+        else:
+            st.write("No comparable historical games found.")
     else:
-        st.write("No comparable historical games found.")
+        st.write("Historical dataset is empty after filtering.")
 else:
-    st.write("Run a prediction to see similar historical matchups.")
+    st.write("Run one or more predictions to see similar historical matchups.")
 
 # =====================================================
 # VENUE SCENARIO: MOVE BOWL TO ANOTHER STADIUM
