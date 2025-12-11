@@ -485,7 +485,7 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
-    # =====================================================
+# =====================================================
 # TEAM VISITATION INDEX (0–100)
 # =====================================================
 st.subheader("👥 Team Visitation Index")
@@ -499,9 +499,9 @@ def compute_tvi(
     alumni_dispersion,
     conference
 ):
-    score = 50  # start from baseline
+    score = 50  # baseline
 
-    # ---- Distance effect (biggest factor) ----
+    # ---- Distance effect ----
     if miles <= 150:
         score += 20
     elif miles <= 350:
@@ -511,7 +511,7 @@ def compute_tvi(
     else:
         score -= 10
 
-    # ---- Fanbase size (log-scaled) ----
+    # ---- Fanbase size ----
     if fanbase_size > 600000:
         score += 10
     elif fanbase_size > 300000:
@@ -525,21 +525,19 @@ def compute_tvi(
     elif brand_power > 50:
         score += 4
 
-    # ---- Season success – wins & AP Strength ----
+    # ---- Wins ----
     if wins >= 9:
         score += 6
     elif wins >= 7:
         score += 3
 
-    if ap_strength <= 20 and ap_strength > 0:  # strong AP score
+    # ---- AP Strength ----
+    if ap_strength > 0 and ap_strength <= 20:
         score += 4
     elif ap_strength <= 35:
         score += 2
 
     # ---- Alumni dispersion ----
-    # "National" = strong ability to travel
-    # "Regional" = moderate
-    # "Local" = limited long-distance turnout
     ad = str(alumni_dispersion).lower()
     if "national" in ad:
         score += 5
@@ -548,7 +546,7 @@ def compute_tvi(
     elif "local" in ad:
         score -= 2
 
-    # ---- Conference culture effect ----
+    # ---- Conference travel culture ----
     conf = str(conference).lower()
     if "sec" in conf:
         score += 8
@@ -558,13 +556,11 @@ def compute_tvi(
         score += 4
     elif "acc" in conf:
         score += 2
-    # G5 conferences get no bonus
 
-    # clamp
     return max(0, min(100, score))
 
 
-# ---- Collect inputs for each team ----
+# ---- Compute TVI for each team ----
 t1_tvi = compute_tvi(
     miles=team1_miles,
     fanbase_size=t1_fanbase,
@@ -586,21 +582,24 @@ t2_tvi = compute_tvi(
 )
 
 # ---- Display ----
-tv1, tv2 = st.columns(2)
+col_t1, col_t2 = st.columns(2)
 
-with tv1:
+with col_t1:
     st.metric(f"{team1} Visitation Index", f"{t1_tvi} / 100")
 
-with tv2:
+with col_t2:
     st.metric(f"{team2} Visitation Index", f"{t2_tvi} / 100")
 
-# Overall matchup travel expectation
 avg_tvi = (t1_tvi + t2_tvi) / 2
 st.write(f"**Overall Matchup Travel Expectation:** {avg_tvi:.1f} / 100")
 
+
+    
     # =====================================================
     # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
     # =====================================================
+    
+    
     st.subheader("Uncertainty & Risk")
 
     ci_width = 0.08  # ±8%
@@ -1140,7 +1139,5 @@ try:
     st.dataframe(saved[saved["folder"] == selected_folder])
 except FileNotFoundError:
     st.write("No scenarios saved yet.")
-
-
 
 
