@@ -819,7 +819,11 @@ if st.button("Run Prediction"):
     student_factor /= total
     general_public /= total
 
-   
+   # ---- Display ----
+    st.markdown(f"**Traveling Fans:** {traveling_fans*100:.1f}%")
+    st.markdown(f"**Local Alumni:** {alumni_factor*100:.1f}%")
+    st.markdown(f"**Students:** {student_factor*100:.1f}%")
+    st.markdown(f"**General Public / Neutral Fans:** {general_public*100:.1f}%")
     
     # =====================================================
     # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
