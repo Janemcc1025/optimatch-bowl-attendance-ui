@@ -1461,66 +1461,84 @@ if st.button("Run Prediction"):
     }
 
 # =====================================================
-# LIVE COMPARISON TO SIMILAR HISTORICAL MATCHUPS
+# 📚 HISTORICAL COMPARISON: SAME BOWL (2022, 2023, 2024)
 # =====================================================
 
-st.header("Similar Historical Matchups")
+st.subheader("📚 Historical Comparison (Same Bowl: 2022–2024)")
 
-if "scenario_history" in st.session_state and len(st.session_state["scenario_history"]) > 0:
-    names = [
-        f"{s['team1']} vs {s['team2']} ({s['bowl']})"
-        for s in st.session_state["scenario_history"]
-    ]
-    selected = st.selectbox("Select a scenario to compare", names)
-    idx = names.index(selected)
-    current_features = st.session_state["scenario_history"][idx]["features"]
+# Filter to same bowl name across historical seasons
+hist_bowl = calib[calib["Bowl Game Name"] == bowl_choice].copy()
 
-    sim_cols = [
-        "Avg Distace Traveled",
-        "Combined Fanbase (Log transformed)",
-        "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)",
-        "Bowl Tier",
-    ]
+# Ensure we only compare 2022, 2023, 2024 (no projections)
+if "Year" in hist_bowl.columns:
+    hist_bowl = hist_bowl[hist_bowl["Year"].isin([2022, 2023, 2024])]
 
-    calib_sim = calib.copy()
-    for c in sim_cols:
-        calib_sim[c] = pd.to_numeric(calib_sim[c], errors="coerce")
+# Convert numeric columns
+for col in ["Attendance", "Venue Capacity", "Avg Distace Traveled",
+            "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)",
+            "Combined Fanbase (Log transformed)", "AP Strength Score",
+            "Distance Minimum", "Distance Imbalance"]:
+    if col in hist_bowl.columns:
+        hist_bowl[col] = pd.to_numeric(hist_bowl[col], errors="coerce")
 
-    calib_sim = calib_sim.dropna(subset=sim_cols)
+# Build comparison table
+comparison_rows = []
 
-    if "Year" in calib_sim.columns:
-        calib_sim = calib_sim[calib_sim["Year"] < 2025]
+for _, row in hist_bowl.iterrows():
+    year = int(row.get("Year", 0))
+    attendance = safe_num(row.get("Attendance"))
+    cap = safe_num(row.get("Venue Capacity"))
+    pct_filled_hist = attendance / cap if cap > 0 else 0
 
-    if not calib_sim.empty:
-        cur_vec = np.array([current_features[c] for c in sim_cols], dtype=float)
-        hist_mat = calib_sim[sim_cols].to_numpy(dtype=float)
+    comparison_rows.append({
+        "Year": year,
+        "Matchup": f"{row.get('Team 1', '')} vs {row.get('Team 2', '')}",
+        "Actual Attendance": f"{attendance:,.0f}",
+        "% Filled": f"{pct_filled_hist:.1%}",
+        "Avg Distance (mi)": f"{safe_num(row.get('Avg Distace Traveled')):,.0f}",
+        "Min Distance": f"{safe_num(row.get('Distance Minimum')):,.0f}",
+        "Distance Imbalance": f"{safe_num(row.get('Distance Imbalance')):,.0f}",
+        "Matchup Power": safe_num(row.get("Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)")),
+        "Combined Fanbase (log)": f"{safe_num(row.get('Combined Fanbase (Log transformed)')):.2f}",
+        "AP Strength": f"{safe_num(row.get('AP Strength Score')):.1f}",
+    })
 
-        dists = np.linalg.norm(hist_mat - cur_vec, axis=1)
-        calib_sim["sim_distance"] = dists
+# Add the 2025 projection row
+comparison_rows.append({
+    "Year": 2025,
+    "Matchup": f"{team1} vs {team2}",
+    "Actual Attendance": f"{final_pred:,.0f}",
+    "% Filled": f"{pct_filled:.1%}",
+    "Avg Distance (mi)": f"{avg_distance:,.0f}",
+    "Min Distance": f"{distance_min:,.0f}",
+    "Distance Imbalance": f"{distance_imbalance:,.0f}",
+    "Matchup Power": matchup_power,
+    "Combined Fanbase (log)": f"{combined_fanbase_log:.2f}",
+    "AP Strength": f"{ap_strength_score:.1f}",
+})
 
-        top_sim = calib_sim.nsmallest(3, "sim_distance")
+hist_df = pd.DataFrame(comparison_rows)
 
-        if not top_sim.empty:
-            display_cols = [
-                "Year",
-                "Bowl Game Name",
-                "Team 1",
-                "Team 2",
-                "Attendance",
-                "Actual Attendance",
-                "Bowl Avg Attendees",
-            ]
-            existing_cols = [c for c in display_cols if c in top_sim.columns]
-            st.write(
-                "Most similar historical games based on distance, fanbase size, bowl tier, and matchup type:"
-            )
-            st.dataframe(top_sim[existing_cols])
-        else:
-            st.write("No comparable historical games found.")
+st.dataframe(hist_df, use_container_width=True)
+
+# Trend Summary
+if len(hist_bowl) > 0:
+    hist_att_avg = hist_bowl["Attendance"].mean()
+    delta_vs_hist = final_pred - hist_att_avg
+    pct_delta_hist = delta_vs_hist / hist_att_avg if hist_att_avg > 0 else 0
+
+    st.markdown("### 📈 Trend Summary")
+    st.write(f"- **Historical Avg Attendance (2022–24):** {hist_att_avg:,.0f}")
+    st.write(f"- **2025 Projection:** {final_pred:,.0f}")
+    st.write(f"- **Difference:** {delta_vs_hist:,.0f} (**{pct_delta_hist:.1%}**)")
+
+    if final_pred > hist_att_avg:
+        st.success("2025 projection exceeds the bowl's recent 3-year average.")
     else:
-        st.write("Historical dataset is empty after filtering.")
+        st.warning("2025 projection is below the bowl's recent 3-year average.")
 else:
-    st.write("Run one or more predictions to see similar historical matchups.")
+    st.write("No valid historical bowl data found for this matchup.")
+
 
 # =====================================================
 # VENUE SCENARIO: MOVE BOWL TO ANOTHER STADIUM
