@@ -252,15 +252,41 @@ feature_row = pd.DataFrame([[row_data.get(col, 0) for col in feature_cols]], col
 # -----------------------------------
 st.header("Prediction")
 
-if st.button("Run Prediction"):
-    raw_pred = model.predict(feature_row)[0]
-    blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
-    final_pred = min(blended_pred, venue_capacity)
-    final_pred = max(final_pred, 0)
-    pct_filled = final_pred / venue_capacity if venue_capacity > 0 else 0
+# =========================================================
+#  CUSTOM OPTIMATCH POST-PROCESSING RULES
+# =========================================================
 
-    st.metric("Predicted Attendance", f"{final_pred:,.0f}")
-    st.metric("Projected % Filled", f"{pct_filled:.1%}")
+raw_pred = model.predict(feature_row)[0]
+blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
+
+# 1. Special rule for Hawaii + Bahamas Bowl
+special_bowls_raw = ["Hawaii Bowl", "Bahamas Bowl"]
+if bowl_choice in special_bowls_raw:
+    final_pred = raw_pred
+else:
+    final_pred = blended_pred
+
+# 2. Apply bowl-specific attendance boosts
+boosts = {
+    "Gator Bowl": 1.05,
+    "Pop-Tarts Bowl": 1.05,
+    "Texas Bowl": 1.05,
+    "Music City Bowl": 1.05,
+    "Alamo Bowl": 1.10,
+    "Duke’s Mayo Bowl": 1.03
+}
+
+if bowl_choice in boosts:
+    final_pred *= boosts[bowl_choice]
+
+# 3. Capacity constraint
+final_pred = min(final_pred, venue_capacity)
+
+# 4. Floor at zero
+final_pred = max(final_pred, 0)
+
+pct_filled = final_pred / venue_capacity
+
 
     # -----------------------------------
     # KEY DRIVER SUMMARY
