@@ -485,120 +485,116 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
-# =====================================================
-# TEAM VISITATION INDEX (0–100)
-# =====================================================
-st.subheader("👥 Team Visitation Index")
+    # =====================================================
+    # TEAM VISITATION INDEX (0–100)
+    # =====================================================
+    st.subheader("👥 Team Visitation Index")
 
-def compute_tvi(
-    miles, 
-    fanbase_size, 
-    brand_power, 
-    wins, 
-    ap_strength, 
-    alumni_dispersion,
-    conference
-):
-    score = 50  # baseline
+    def compute_tvi(
+        miles, 
+        fanbase_size, 
+        brand_power, 
+        wins, 
+        ap_strength, 
+        alumni_dispersion,
+        conference
+    ):
+        score = 50  # baseline
 
-    # ---- Distance effect ----
-    if miles <= 150:
-        score += 20
-    elif miles <= 350:
-        score += 12
-    elif miles <= 700:
-        score += 4
-    else:
-        score -= 10
+        # ---- Distance effect ----
+        if miles <= 150:
+            score += 20
+        elif miles <= 350:
+            score += 12
+        elif miles <= 700:
+            score += 4
+        else:
+            score -= 10
 
-    # ---- Fanbase size ----
-    if fanbase_size > 600000:
-        score += 10
-    elif fanbase_size > 300000:
-        score += 6
-    elif fanbase_size > 100000:
-        score += 3
+        # ---- Fanbase size ----
+        if fanbase_size > 600000:
+            score += 10
+        elif fanbase_size > 300000:
+            score += 6
+        elif fanbase_size > 100000:
+            score += 3
 
-    # ---- Brand power ----
-    if brand_power > 75:
-        score += 8
-    elif brand_power > 50:
-        score += 4
+        # ---- Brand power ----
+        if brand_power > 75:
+            score += 8
+        elif brand_power > 50:
+            score += 4
 
-    # ---- Wins ----
-    if wins >= 9:
-        score += 6
-    elif wins >= 7:
-        score += 3
+        # ---- Wins ----
+        if wins >= 9:
+            score += 6
+        elif wins >= 7:
+            score += 3
 
-    # ---- AP Strength ----
-    if ap_strength > 0 and ap_strength <= 20:
-        score += 4
-    elif ap_strength <= 35:
-        score += 2
+        # ---- AP Strength ----
+        if ap_strength > 0 and ap_strength <= 20:
+            score += 4
+        elif ap_strength <= 35:
+            score += 2
 
-    # ---- Alumni dispersion ----
-    ad = str(alumni_dispersion).lower()
-    if "national" in ad:
-        score += 5
-    elif "regional" in ad:
-        score += 2
-    elif "local" in ad:
-        score -= 2
+        # ---- Alumni dispersion ----
+        ad = str(alumni_dispersion).lower()
+        if "national" in ad:
+            score += 5
+        elif "regional" in ad:
+            score += 2
+        elif "local" in ad:
+            score -= 2
 
-    # ---- Conference travel culture ----
-    conf = str(conference).lower()
-    if "sec" in conf:
-        score += 8
-    elif "big ten" in conf or "big 10" in conf:
-        score += 6
-    elif "big 12" in conf:
-        score += 4
-    elif "acc" in conf:
-        score += 2
+        # ---- Conference travel culture ----
+        conf = str(conference).lower()
+        if "sec" in conf:
+            score += 8
+        elif "big ten" in conf or "big 10" in conf:
+            score += 6
+        elif "big 12" in conf:
+            score += 4
+        elif "acc" in conf:
+            score += 2
 
-    return max(0, min(100, score))
+        return max(0, min(100, score))
 
+    # ---- Compute TVI for each team ----
+    t1_tvi = compute_tvi(
+        miles=team1_miles,
+        fanbase_size=t1_fanbase,
+        brand_power=t1_brand,
+        wins=t1_wins,
+        ap_strength=t1_ap_strength,
+        alumni_dispersion=row1.get("Alumni Dispersion", ""),
+        conference=row1.get("Football FBS Conference", "")
+    )
 
-# ---- Compute TVI for each team ----
-t1_tvi = compute_tvi(
-    miles=team1_miles,
-    fanbase_size=t1_fanbase,
-    brand_power=t1_brand,
-    wins=t1_wins,
-    ap_strength=t1_ap_strength,
-    alumni_dispersion=row1.get("Alumni Dispersion", ""),
-    conference=row1.get("Football FBS Conference", "")
-)
+    t2_tvi = compute_tvi(
+        miles=team2_miles,
+        fanbase_size=t2_fanbase,
+        brand_power=t2_brand,
+        wins=t2_wins,
+        ap_strength=t2_ap_strength,
+        alumni_dispersion=row2.get("Alumni Dispersion", ""),
+        conference=row2.get("Football FBS Conference", "")
+    )
 
-t2_tvi = compute_tvi(
-    miles=team2_miles,
-    fanbase_size=t2_fanbase,
-    brand_power=t2_brand,
-    wins=t2_wins,
-    ap_strength=t2_ap_strength,
-    alumni_dispersion=row2.get("Alumni Dispersion", ""),
-    conference=row2.get("Football FBS Conference", "")
-)
+    col_t1, col_t2 = st.columns(2)
 
-# ---- Display ----
-col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        st.metric(f"{team1} Visitation Index", f"{t1_tvi} / 100")
 
-with col_t1:
-    st.metric(f"{team1} Visitation Index", f"{t1_tvi} / 100")
+    with col_t2:
+        st.metric(f"{team2} Visitation Index", f"{t2_tvi} / 100")
 
-with col_t2:
-    st.metric(f"{team2} Visitation Index", f"{t2_tvi} / 100")
-
-avg_tvi = (t1_tvi + t2_tvi) / 2
-st.write(f"**Overall Matchup Travel Expectation:** {avg_tvi:.1f} / 100")
-
+    avg_tvi = (t1_tvi + t2_tvi) / 2
+    st.write(f"**Overall Matchup Travel Expectation:** {avg_tvi:.1f} / 100")
 
     
     # =====================================================
     # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
     # =====================================================
-    
     
     st.subheader("Uncertainty & Risk")
 
