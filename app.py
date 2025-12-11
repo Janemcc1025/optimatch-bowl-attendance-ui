@@ -29,6 +29,35 @@ BOWL_NAME_COL = "Bowl Name"
 # HELPERS
 # =====================================================
 
+# =====================================================
+# AIRPORT COORDINATES (can expand anytime)
+# =====================================================
+AIRPORTS = {
+    "LAX - Los Angeles": (33.9416, -118.4085),
+    "SFO - San Francisco": (37.6213, -122.3790),
+    "SEA - Seattle": (47.4502, -122.3088),
+    "PHX - Phoenix Sky Harbor": (33.4342, -112.0116),
+    "LAS - Las Vegas": (36.0840, -115.1537),
+    "DEN - Denver": (39.8561, -104.6737),
+    "DFW - Dallas/Fort Worth": (32.8998, -97.0403),
+    "IAH - Houston Intercontinental": (29.9902, -95.3368),
+    "ATL - Atlanta": (33.6407, -84.4277),
+    "MCO - Orlando": (28.4312, -81.3081),
+    "MIA - Miami": (25.7959, -80.2870),
+    "TPA - Tampa": (27.9747, -82.5333),
+    "CLT - Charlotte": (35.2144, -80.9473),
+    "BOS - Boston Logan": (42.3656, -71.0096),
+    "JFK - New York JFK": (40.6413, -73.7781),
+    "EWR - Newark": (40.6895, -74.1745),
+    "PHL - Philadelphia": (39.8744, -75.2424),
+    "BNA - Nashville": (36.1263, -86.6774),
+    "MSY - New Orleans": (29.9934, -90.2580),
+    "ELP - El Paso": (31.7982, -106.3960),
+    "HNL - Honolulu": (21.3245, -157.9251),
+    "BOI - Boise": (43.5644, -116.2228),
+    "SLC - Salt Lake City": (40.7899, -111.9791)
+}
+
 def haversine(lat1, lon1, lat2, lon2):
     """Great-circle distance in miles."""
     R = 3958.8
@@ -39,6 +68,85 @@ def haversine(lat1, lon1, lat2, lon2):
     a = sin(dLat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dLon / 2) ** 2
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
+
+def find_nearest_airport(venue_lat, venue_lon):
+    closest_airport = None
+    closest_dist = float("inf")
+
+    for name, (alat, alon) in AIRPORTS.items():
+        dist = haversine(venue_lat, venue_lon, alat, alon)
+        if dist < closest_dist:
+            closest_dist = dist
+            closest_airport = name
+
+    return closest_airport, closest_dist
+
+# =====================================================
+# VENUE ACCESSIBILITY SCORE (0–100)
+# =====================================================
+def compute_venue_accessibility_score(
+    venue_capacity,
+    team1_miles,
+    team2_miles,
+    venue_city,
+    venue_state,
+    airport_distance
+):
+    score = 50  # baseline
+
+    # ---- 1. Airport Access (Major Hub) ----
+    major_airports = [
+        "los angeles","phoenix","las vegas","atlanta","chicago",
+        "dallas","houston","orlando","miami","charlotte","seattle",
+        "denver","new york","boston","philadelphia"
+    ]
+    city_key = f"{venue_city}, {venue_state}".lower()
+
+    if any(a in city_key for a in major_airports):
+        score += 12
+    else:
+        score += 5
+
+    # ---- 1B. Airport Distance to Venue ----
+    if airport_distance < 10:
+        score += 15
+    elif airport_distance < 20:
+        score += 10
+    elif airport_distance < 35:
+        score += 6
+    elif airport_distance < 50:
+        score += 3
+    else:
+        score += 1
+
+    # ---- 2. Driving Access ----
+    avg_miles = (team1_miles + team2_miles) / 2
+    if avg_miles < 250:
+        score += 20
+    elif avg_miles < 600:
+        score += 12
+    elif avg_miles < 1000:
+        score += 6
+    else:
+        score += 2
+
+    # ---- 3. Urban Access Level ----
+    high_access_cities = [
+        "los angeles","tampa","orlando","phoenix","new york",
+        "boston","denver","atlanta","san antonio","charlotte"
+    ]
+    if venue_city.lower() in high_access_cities:
+        score += 15
+    else:
+        score += 5
+
+    # ---- 4. Stadium Capacity Fit ----
+    if venue_capacity >= 70000:
+        score -= 5
+    elif venue_capacity <= 35000:
+        score += 5
+
+    return max(0, min(100, score))
 
 def safe_num(x, default=0.0):
     try:
@@ -61,6 +169,30 @@ def estimate_travel_hours(miles: float) -> float:
     else:
         # assume commercial flight + airport overhead
         return 3.0 + 2.5
+
+# =====================================================
+# VENUE ACCESSIBILITY SCORE PANEL
+# =====================================================
+st.subheader("📍 Venue Accessibility Score")
+
+st.metric("Accessibility Score", f"{venue_access_score}/100")
+
+st.write("### Key Accessibility Factors")
+st.write(f"- Nearest major airport: **{nearest_airport_name}**")
+st.write(f"- Airport distance to venue: **{airport_distance:.1f} miles**")
+st.write(f"- Avg team driving distance: **{int((team1_miles + team2_miles)/2)} miles**")
+st.write(f"- Stadium capacity: **{venue_capacity:,} seats**")
+st.write(f"- City: **{venue_city}, {venue_state}**")
+
+if venue_access_score >= 80:
+    st.success("This venue offers *excellent* accessibility for fans and travel logistics.")
+elif venue_access_score >= 65:
+    st.info("This venue provides *strong* overall accessibility.")
+elif venue_access_score >= 50:
+    st.warning("This venue has *moderate* accessibility — travel may require planning.")
+else:
+    st.error("This venue is *challenging to access* for most fanbases.")
+
 
 # =====================================================
 # LOAD MODEL + FEATURE LIST
@@ -171,6 +303,18 @@ venue_lat = safe_num(venue_row["Lat"])
 venue_lon = safe_num(venue_row["Lon"])
 venue_city = venue_row["City"]
 venue_state = venue_row["State"]
+
+nearest_airport_name, airport_distance = find_nearest_airport(venue_lat, venue_lon)
+
+venue_access_score = compute_venue_accessibility_score(
+    venue_capacity,
+    team1_miles,
+    team2_miles,
+    venue_city,
+    venue_state,
+    airport_distance
+)
+
 
 # approximate venue tier from historical data if available
 calib_for_bowl = calib[calib["Bowl Game Name"] == bowl_choice]
