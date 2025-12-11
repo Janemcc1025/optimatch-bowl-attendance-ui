@@ -233,7 +233,7 @@ for df in (teams, venues, bowl_tiers, calib):
     df.columns = df.columns.str.strip()
 
 # =====================================================
-# DERIVE SCALERS / THRESHOLDS FROM HISTORICAL DATA
+# DERIVE SCALERS / THRESHOLDS FROM  DATA
 # =====================================================
 
 # Distance MinMax scaling
@@ -1466,79 +1466,176 @@ if st.button("Run Prediction"):
 
 st.subheader("📚 Historical Comparison (Same Bowl: 2022–2024)")
 
-# Filter to same bowl name across historical seasons
+# Filter to same bowl name
 hist_bowl = calib[calib["Bowl Game Name"] == bowl_choice].copy()
 
-# Ensure we only compare 2022, 2023, 2024 (no projections)
+# Only real past games
 if "Year" in hist_bowl.columns:
     hist_bowl = hist_bowl[hist_bowl["Year"].isin([2022, 2023, 2024])]
 
-# Convert numeric columns
-for col in ["Attendance", "Venue Capacity", "Avg Distace Traveled",
-            "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)",
-            "Combined Fanbase (Log transformed)", "AP Strength Score",
-            "Distance Minimum", "Distance Imbalance"]:
-    if col in hist_bowl.columns:
-        hist_bowl[col] = pd.to_numeric(hist_bowl[col], errors="coerce")
+num_games = len(hist_bowl)
 
-# Build comparison table
-comparison_rows = []
+if num_games == 0:
+    st.write("No valid historical bowl data found for this matchup.")
+else:
+    rows = []
 
-for _, row in hist_bowl.iterrows():
-    year = int(row.get("Year", 0))
-    attendance = safe_num(row.get("Attendance"))
-    cap = safe_num(row.get("Venue Capacity"))
-    pct_filled_hist = attendance / cap if cap > 0 else 0
+    # ---- Loop Through Each Historical Year ----
+    for _, r in hist_bowl.iterrows():
+        year = int(r["Year"])
 
-    comparison_rows.append({
-        "Year": year,
-        "Matchup": f"{row.get('Team 1', '')} vs {row.get('Team 2', '')}",
-        "Actual Attendance": f"{attendance:,.0f}",
-        "% Filled": f"{pct_filled_hist:.1%}",
-        "Avg Distance (mi)": f"{safe_num(row.get('Avg Distace Traveled')):,.0f}",
-        "Min Distance": f"{safe_num(row.get('Distance Minimum')):,.0f}",
-        "Distance Imbalance": f"{safe_num(row.get('Distance Imbalance')):,.0f}",
-        "Matchup Power": safe_num(row.get("Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)")),
-        "Combined Fanbase (log)": f"{safe_num(row.get('Combined Fanbase (Log transformed)')):.2f}",
-        "AP Strength": f"{safe_num(row.get('AP Strength Score')):.1f}",
+        att = safe_num(r.get("Attendance"))
+        cap = safe_num(r.get("Venue Capacity"))
+        pct_fill = att / cap if cap > 0 else 0
+
+        # Extract historical features
+        avg_dist = safe_num(r.get("Avg Distace Traveled"))
+        min_dist = safe_num(r.get("Distance Minimum"))
+        dist_imb = safe_num(r.get("Distance Imbalance"))
+        fan_log = safe_num(r.get("Combined Fanbase (Log transformed)"))
+        ap_str = safe_num(r.get("AP Strength Score"))
+        m_power = safe_num(r.get("Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)"))
+
+        # ---- Recompute Advanced Metrics Using Matchup Scorecard Functions ----
+
+        # Venue Accessibility Score
+        v_lat = safe_num(r.get("Venue Lat"))
+        v_lon = safe_num(r.get("Venue Lon"))
+        t1_lat_h = safe_num(r.get("Team 1 Lat"))
+        t1_lon_h = safe_num(r.get("Team 1 Lon"))
+        t2_lat_h = safe_num(r.get("Team 2 Lat"))
+        t2_lon_h = safe_num(r.get("Team 2 Lon"))
+
+        if all(np.isfinite([t1_lat_h, t1_lon_h, v_lat, v_lon])):
+            t1_m_h = haversine(t1_lat_h, t1_lon_h, v_lat, v_lon)
+        else:
+            t1_m_h = np.nan
+
+        if all(np.isfinite([t2_lat_h, t2_lon_h, v_lat, v_lon])):
+            t2_m_h = haversine(t2_lat_h, t2_lon_h, v_lat, v_lon)
+        else:
+            t2_m_h = np.nan
+
+        nearest_hist_airport, hist_airport_dist = find_nearest_airport(v_lat, v_lon)
+
+        hist_access = compute_venue_accessibility_score(
+            cap,
+            t1_m_h if not np.isnan(t1_m_h) else 0,
+            t2_m_h if not np.isnan(t2_m_h) else 0,
+            r.get("Venue City", ""),
+            r.get("Venue State", ""),
+            hist_airport_dist
+        )
+
+        # ---- Historical TVI (Team Visitation Index) ----
+        conf1_h = r.get("Team 1 Conference", "")
+        conf2_h = r.get("Team 2 Conference", "")
+        alumni1 = r.get("Team 1 Alumni Dispersion", "")
+        alumni2 = r.get("Team 2 Alumni Dispersion", "")
+
+        t1_tvi_h = compute_tvi(
+            t1_m_h,
+            safe_num(r.get("Team 1 Fanbase")),
+            safe_num(r.get("Team 1 Brand Power")),
+            safe_num(r.get("Team 1 Wins")),
+            safe_num(r.get("Team 1 AP Strength")),
+            alumni1,
+            conf1_h
+        )
+
+        t2_tvi_h = compute_tvi(
+            t2_m_h,
+            safe_num(r.get("Team 2 Fanbase")),
+            safe_num(r.get("Team 2 Brand Power")),
+            safe_num(r.get("Team 2 Wins")),
+            safe_num(r.get("Team 2 AP Strength")),
+            alumni2,
+            conf2_h
+        )
+
+        avg_tvi_h = (t1_tvi_h + t2_tvi_h) / 2
+
+        # ---- Historical Market Impact Score (MIS) ----
+        hist_travel_pct = min(0.85, max(0.05, (avg_dist / 1000) * (avg_tvi_h/100)))
+        hist_mis = 50 + (10 if m_power == 2 else 4 if m_power == 1 else 0)
+        hist_mis += (6 if fan_log > 6.0 else 3)
+        hist_mis += (10 if att > 45000 else 5 if att > 30000 else 2)
+        hist_mis = max(0, min(100, hist_mis))
+
+        # ---- Historical Sponsor Visibility Score (SVS) ----
+        hist_svs = 50
+        if fan_log > 6.0:
+            hist_svs += 10
+        if m_power == 2:
+            hist_svs += 10
+        if att > 45000:
+            hist_svs += 8
+        hist_svs = max(0, min(100, hist_svs))
+
+        # ---- Historical Matchup Fit Score (MFS) ----
+        hist_mfs = 50
+        if min_dist < 200:
+            hist_mfs += 10
+        if m_power == 2:
+            hist_mfs += 12
+        hist_mfs = max(0, min(100, hist_mfs))
+
+        # ---- Interest Index ----
+        hist_interest = 5 + (1 if m_power >= 1 else 0)
+        hist_interest += (1 if fan_log > 6.0 else 0)
+        hist_interest = max(1, min(10, hist_interest))
+
+        # ---- Sellout Probability ----
+        hist_sellout = pct_fill
+        if m_power == 2:
+            hist_sellout += 0.05
+        hist_sellout = float(np.clip(hist_sellout, 0, 1))
+
+        # Add row to table
+        rows.append({
+            "Year": year,
+            "Matchup": f"{r.get('Team 1')} vs {r.get('Team 2')}",
+            "Attendance": f"{att:,.0f}",
+            "% Filled": f"{pct_fill:.1%}",
+            "Avg Dist (mi)": f"{avg_dist:,.0f}",
+            "Min Dist": f"{min_dist:,.0f}",
+            "Imbalance": f"{dist_imb:,.0f}",
+            "Power": m_power,
+            "Fanbase (log)": f"{fan_log:.2f}",
+            "AP Strength": f"{ap_str:.1f}",
+            "Accessibility": hist_access,
+            "TVI (Avg)": f"{avg_tvi_h:.0f}",
+            "MIS": hist_mis,
+            "SVS": hist_svs,
+            "MFS": hist_mfs,
+            "Interest": hist_interest,
+            "Sellout Prob": f"{hist_sellout:.1%}"
+        })
+
+    # ---- Add 2025 Projection Row ----
+    rows.append({
+        "Year": 2025,
+        "Matchup": f"{team1} vs {team2}",
+        "Attendance": f"{final_pred:,.0f}",
+        "% Filled": f"{pct_filled:.1%}",
+        "Avg Dist (mi)": f"{avg_distance:,.0f}",
+        "Min Dist": f"{distance_min:,.0f}",
+        "Imbalance": f"{distance_imbalance:,.0f}",
+        "Power": matchup_power,
+        "Fanbase (log)": f"{combined_fanbase_log:.2f}",
+        "AP Strength": f"{ap_strength_score:.1f}",
+        "Accessibility": venue_access_score,
+        "TVI (Avg)": f"{avg_tvi:.0f}",
+        "MIS": mis,
+        "SVS": svs,
+        "MFS": mfs,
+        "Interest": interest_index,
+        "Sellout Prob": f"{sellout_prob:.1%}"
     })
 
-# Add the 2025 projection row
-comparison_rows.append({
-    "Year": 2025,
-    "Matchup": f"{team1} vs {team2}",
-    "Actual Attendance": f"{final_pred:,.0f}",
-    "% Filled": f"{pct_filled:.1%}",
-    "Avg Distance (mi)": f"{avg_distance:,.0f}",
-    "Min Distance": f"{distance_min:,.0f}",
-    "Distance Imbalance": f"{distance_imbalance:,.0f}",
-    "Matchup Power": matchup_power,
-    "Combined Fanbase (log)": f"{combined_fanbase_log:.2f}",
-    "AP Strength": f"{ap_strength_score:.1f}",
-})
+    enhanced_hist_df = pd.DataFrame(rows)
 
-hist_df = pd.DataFrame(comparison_rows)
-
-st.dataframe(hist_df, use_container_width=True)
-
-# Trend Summary
-if len(hist_bowl) > 0:
-    hist_att_avg = hist_bowl["Attendance"].mean()
-    delta_vs_hist = final_pred - hist_att_avg
-    pct_delta_hist = delta_vs_hist / hist_att_avg if hist_att_avg > 0 else 0
-
-    st.markdown("### 📈 Trend Summary")
-    st.write(f"- **Historical Avg Attendance (2022–24):** {hist_att_avg:,.0f}")
-    st.write(f"- **2025 Projection:** {final_pred:,.0f}")
-    st.write(f"- **Difference:** {delta_vs_hist:,.0f} (**{pct_delta_hist:.1%}**)")
-
-    if final_pred > hist_att_avg:
-        st.success("2025 projection exceeds the bowl's recent 3-year average.")
-    else:
-        st.warning("2025 projection is below the bowl's recent 3-year average.")
-else:
-    st.write("No valid historical bowl data found for this matchup.")
-
+    st.dataframe(enhanced_hist_df, use_container_width=True)
 
 # =====================================================
 # VENUE SCENARIO: MOVE BOWL TO ANOTHER STADIUM
