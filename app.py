@@ -512,3 +512,40 @@ if not drivers:
 
 for d in drivers:
     st.write("• " + d)
+
+# -------- ALUMNI DISPERSION IMPACT --------
+t1_alumni = str(row1.get("Alumni Dispersion", "")).lower()
+t2_alumni = str(row2.get("Alumni Dispersion", "")).lower()
+
+def alumni_comment(team, dispersion, distance):
+    msg = None
+
+    if "local" in dispersion:
+        if distance < local_threshold:
+            msg = f"{team} has a strong local alumni base near the bowl site, which should meaningfully lift attendance."
+        else:
+            msg = f"{team} typically relies on local alumni turnout, but this bowl is farther from its primary alumni region."
+
+    elif "regional" in dispersion:
+        if distance < 400:
+            msg = f"{team}'s alumni network is regionally concentrated, and the relatively close travel distance should support strong turnout."
+        else:
+            msg = f"{team} has a regionally distributed alumni base, but the travel distance may moderate participation."
+
+    elif "national" in dispersion:
+        if distance > 700:
+            msg = f"{team} has a nationally dispersed alumni base, which helps offset the longer travel distance to the bowl."
+        else:
+            msg = f"{team}'s national alumni footprint supports flexible travel and broader turnout potential."
+
+    return msg
+
+alumni_msgs = [
+    alumni_comment(team1, t1_alumni, team1_miles),
+    alumni_comment(team2, t2_alumni, team2_miles)
+]
+
+for m in alumni_msgs:
+    if m:
+        drivers.append(m)
+
