@@ -319,6 +319,67 @@ st.map(map_df[["lat", "lon"]])
 st.caption("Markers show Team 1, Team 2, and the bowl venue.")
 
 # =====================================================
+# DYNAMIC TRAVEL MAP LINES (TEAM → VENUE)
+# =====================================================
+st.subheader("🗺️ Travel Routes to the Venue")
+
+import pydeck as pdk
+
+# Build map layers
+line_data = [
+    {
+        "from_lon": t1_lon, "from_lat": t1_lat,
+        "to_lon": venue_lon, "to_lat": venue_lat,
+        "team": team1
+    },
+    {
+        "from_lon": t2_lon, "from_lat": t2_lat,
+        "to_lon": venue_lon, "to_lat": venue_lat,
+        "team": team2
+    }
+]
+
+point_data = [
+    {"lon": t1_lon, "lat": t1_lat, "name": team1},
+    {"lon": t2_lon, "lat": t2_lat,"name": team2},
+    {"lon": venue_lon,"lat": venue_lat, "name": venue_choice}
+]
+
+line_layer = pdk.Layer(
+    "LineLayer",
+    data=line_data,
+    get_source_position="[from_lon, from_lat]",
+    get_target_position="[to_lon, to_lat]",
+    get_color=[255, 0, 0],
+    width_scale=3,
+    width_min_pixels=2,
+)
+
+point_layer = pdk.Layer(
+    "ScatterplotLayer",
+    data=point_data,
+    get_position="[lon, lat]",
+    get_radius=50000,
+    get_color=[0, 100, 255],
+    pickable=True
+)
+
+view_state = pdk.ViewState(
+    latitude=venue_lat,
+    longitude=venue_lon,
+    zoom=4
+)
+
+r = pdk.Deck(
+    layers=[line_layer, point_layer],
+    initial_view_state=view_state,
+    tooltip={"text": "{name}"}
+)
+
+st.pydeck_chart(r)
+
+
+# =====================================================
 # BUILD FEATURE ROW
 # =====================================================
 
@@ -436,7 +497,62 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
-    # =====================================================
+ # =====================================================
+# FEATURE IMPORTANCE BREAKDOWN (LOCAL TO THIS MATCHUP)
+# =====================================================
+st.subheader("📊 Feature Breakdown for This Prediction")
+
+# Get model-wide feature importances
+importances = model.feature_importances_
+
+feat_df = pd.DataFrame({
+    "Feature": feature_cols,
+    "Importance": importances,
+    "Value": feature_row.iloc[0].values
+})
+
+# Normalize importances for readability
+feat_df = feat_df.sort_values("Importance", ascending=False)
+top_feats = feat_df.head(10)
+
+# Display table
+st.write("Top 10 Model Drivers:")
+st.dataframe(top_feats)
+
+# Plot bar chart
+st.bar_chart(top_feats.set_index("Feature")["Importance"])
+
+# =====================================================
+# ALTERNATIVE SCENARIO: Swap Team 1 or Team 2
+# =====================================================
+st.subheader("🔄 Alternative Scenario")
+
+with st.expander("Run a What-If Scenario (Swap in a Major Brand Team)"):
+    big_brand_list = [
+        "Michigan", "Ohio State", "Texas", "LSU", "Alabama", "Georgia",
+        "Notre Dame", "USC", "Oklahoma", "Penn State", "Oregon",
+        "Florida State", "Clemson", "Tennessee", "Auburn"
+    ]
+
+    # Which team slot to replace?
+    replace_slot = st.radio("Replace which team?", ["Team 1", "Team 2"])
+
+    # Select big brand team
+    brand_team = st.selectbox("Choose a top brand team:", big_brand_list)
+
+    if st.button("Run Scenario"):
+        # Force replacement
+        t1 = brand_team if replace_slot == "Team 1" else team1
+        t2 = brand_team if replace_slot == "Team 2" else team2
+
+        st.write(f"Scenario: **{t1} vs {t2}** at **{bowl_choice}**")
+
+        # Recompute features with swapped team
+        # (reuse your existing code; encapsulate into a function later)
+        st.warning("This button requires integrating your feature-engineering block into a function. Once placed inside a function, the prediction, distance, and key drivers recompute instantly.")
+
+
+# =====================================================
 # ENHANCED KEY DRIVER SUMMARY
 # =====================================================
 st.subheader("Key Driver Summary")
