@@ -319,30 +319,47 @@ st.map(map_df[["lat", "lon"]])
 st.caption("Markers show Team 1, Team 2, and the bowl venue.")
 
 # =====================================================
-# DYNAMIC TRAVEL MAP LINES (TEAM → VENUE)
+# DYNAMIC ROUTE MAP WITH ESTIMATED TRAVEL TIMES
 # =====================================================
-st.subheader("🗺️ Travel Routes to the Venue")
+st.subheader("🗺️ Travel Routes & Estimated Travel Time")
 
 import pydeck as pdk
 
-# Build map layers
+def estimate_travel_hours(miles: float) -> float:
+    """Crude travel time estimate in hours."""
+    if miles <= 0:
+        return 0.0
+    if miles < 400:
+        # assume driving at 55 mph + 0.5hr overhead
+        return miles / 55.0 + 0.5
+    elif miles < 900:
+        # mix of longer drive or short flight
+        return miles / 60.0 + 1.0  # some buffer
+    else:
+        # assume flight: 3 hours + 2.5 hours airport overhead
+        return 3.0 + 2.5
+
 line_data = [
     {
         "from_lon": t1_lon, "from_lat": t1_lat,
         "to_lon": venue_lon, "to_lat": venue_lat,
-        "team": team1
+        "name": team1,
+        "miles": team1_miles,
+        "hours": estimate_travel_hours(team1_miles),
     },
     {
         "from_lon": t2_lon, "from_lat": t2_lat,
         "to_lon": venue_lon, "to_lat": venue_lat,
-        "team": team2
+        "name": team2,
+        "miles": team2_miles,
+        "hours": estimate_travel_hours(team2_miles),
     }
 ]
 
 point_data = [
     {"lon": t1_lon, "lat": t1_lat, "name": team1},
-    {"lon": t2_lon, "lat": t2_lat,"name": team2},
-    {"lon": venue_lon,"lat": venue_lat, "name": venue_choice}
+    {"lon": t2_lon, "lat": t2_lat, "name": team2},
+    {"lon": venue_lon, "lat": venue_lat, "name": venue_choice},
 ]
 
 line_layer = pdk.Layer(
@@ -353,6 +370,7 @@ line_layer = pdk.Layer(
     get_color=[255, 0, 0],
     width_scale=3,
     width_min_pixels=2,
+    pickable=True,
 )
 
 point_layer = pdk.Layer(
@@ -361,23 +379,29 @@ point_layer = pdk.Layer(
     get_position="[lon, lat]",
     get_radius=50000,
     get_color=[0, 100, 255],
-    pickable=True
+    pickable=True,
 )
 
 view_state = pdk.ViewState(
     latitude=venue_lat,
     longitude=venue_lon,
-    zoom=4
+    zoom=4,
 )
 
 r = pdk.Deck(
     layers=[line_layer, point_layer],
     initial_view_state=view_state,
-    tooltip={"text": "{name}"}
+    tooltip={
+        "html": "<b>{name}</b>",
+    },
 )
 
 st.pydeck_chart(r)
 
+st.caption(
+    "Line paths show travel routes from each campus to the bowl venue. "
+    "Travel hours are estimated internally for analytics and scenario planning."
+)
 
 # =====================================================
 # BUILD FEATURE ROW
@@ -497,12 +521,402 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
- # =====================================================
-# FEATURE IMPORTANCE BREAKDOWN (LOCAL TO THIS MATCHUP)
-# =====================================================
-st.subheader("📊 Feature Breakdown for This Prediction")
+    st.session_state["last_features"] = row_data  # save for comparison
+    st.session_state["last_prediction"] = final_pred
 
-# Get model-wide feature importances
+    st.session_state["scenario_context"] = {
+        "bowl": bowl_choice,
+        "venue": venue_choice,
+        "team1": team1,
+        "team2": team2,
+        "final_pred": final_pred,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "stability_score": stability_score,
+        "travel_score": travel_score,
+        "sellout_prob": sellout_prob,
+        "risk_label": risk_label,
+        "bowl_avg_att": bowl_avg_att,
+        "venue_capacity": venue_capacity,
+        "PRED_YEAR": PRED_YEAR,
+    }
+
+# =====================================================
+# LIVE COMPARISON TO SIMILAR HISTORICAL MATCHUPS
+# =====================================================
+st.header("Similar Historical Matchups")
+
+if "last_features" in st.session_state:
+    current_features = st.session_state["last_features"]
+
+    # choose a subset of numeric features to compare on
+    sim_cols = [
+        "Avg Distace Traveled",
+        "Combined Fanbase (Log transformed)",
+        "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)",
+        "Bowl Tier"
+    ]
+
+    calib_sim = calib.copy()
+    for c in sim_cols:
+        calib_sim[c] = pd.to_numeric(calib_sim[c], errors="coerce")
+
+    calib_sim = calib_sim.dropna(subset=sim_cols)
+
+    cur_vec = np.array([current_features[c] for c in sim_cols], dtype=float)
+    hist_mat = calib_sim[sim_cols].to_numpy(dtype=float)
+
+    # Euclidean distance
+    dists = np.linalg.norm(hist_mat - cur_vec, axis=1)
+    calib_sim["sim_distance"] = dists
+
+    top_sim = calib_sim.nsmallest(3, "sim_distance")
+
+    if not top_sim.empty:
+        display_cols = [
+            "Year",
+            "Bowl Game Name",
+            "Team 1",
+            "Team 2",
+            "Attendance",
+            "Bowl Avg Attendees"
+        ]
+        existing_cols = [c for c in display_cols if c in top_sim.columns]
+        st.write("Most similar historical games based on distance, fanbase size, bowl tier, and matchup type:")
+        st.dataframe(top_sim[existing_cols])
+    else:
+        st.write("No comparable historical games found.")
+else:
+    st.write("Run a prediction to see similar historical matchups.")
+
+# =====================================================
+# WHAT IF THIS BOWL WAS PLAYED AT ANOTHER VENUE?
+# =====================================================
+st.header("📍 Venue Scenario: Move This Bowl to Another Stadium")
+
+alt_venue_choice = st.selectbox(
+    "Select an alternative venue",
+    sorted(venues[VENUE_COL].unique()),
+    index=sorted(venues[VENUE_COL].unique()).index(venue_choice) if venue_choice in venues[VENUE_COL].values else 0
+)
+
+if st.button("Run Alternative Venue Scenario"):
+    alt_venue_row = venues[venues[VENUE_COL] == alt_venue_choice].iloc[0]
+    alt_capacity = safe_num(alt_venue_row["Football Capacity"])
+    alt_lat = safe_num(alt_venue_row["Lat"])
+    alt_lon = safe_num(alt_venue_row["Lon"])
+
+    # distances
+    if all(np.isfinite([t1_lat, t1_lon, alt_lat, alt_lon])):
+        alt_t1_miles = haversine(t1_lat, t1_lon, alt_lat, alt_lon)
+    else:
+        alt_t1_miles = 0.0
+
+    if all(np.isfinite([t2_lat, t2_lon, alt_lat, alt_lon])):
+        alt_t2_miles = haversine(t2_lat, t2_lon, alt_lat, alt_lon)
+    else:
+        alt_t2_miles = 0.0
+
+    alt_avg_distance = (alt_t1_miles + alt_t2_miles) / 2.0
+    alt_distance_min = min(alt_t1_miles, alt_t2_miles)
+    alt_distance_imbalance = abs(alt_t1_miles - alt_t2_miles)
+    alt_local_flag = 1 if alt_distance_min <= local_threshold else 0
+
+    # venue tier: approximate from calibration for that venue if it exists
+    calib_for_venue = calib[calib["Venue"] == alt_venue_choice]
+    if "Venue Tier" in calib.columns and not calib_for_venue.empty:
+        alt_venue_tier = safe_num(calib_for_venue["Venue Tier"].iloc[0])
+    else:
+        alt_venue_tier = venue_tier  # fall back to current
+
+    # rebuild feature row for alt venue (reuse everything else)
+    alt_row_data = dict(row_data)  # copy original
+    alt_row_data.update({
+        "Venue Tier": alt_venue_tier,
+        "Team 1 Miles to Venue": alt_t1_miles,
+        "Team 2 Miles to Venue": alt_t2_miles,
+        "Avg Distace Traveled": alt_avg_distance,
+        "Distance Minimum": alt_distance_min,
+        "Distance Imbalance": alt_distance_imbalance,
+        "Local Team Indicator": alt_local_flag,
+        "MinMax Scale Distcance": (alt_avg_distance - dist_min_train) / (dist_max_train - dist_min_train)
+            if dist_max_train > dist_min_train else 0.0
+    })
+
+    alt_row_data["MinMax Scale Distcance"] = max(
+        0.0,
+        min(1.0, alt_row_data["MinMax Scale Distcance"])
+    )
+
+    alt_feature_row = pd.DataFrame(
+        [[alt_row_data.get(c, 0.0) for c in feature_cols]],
+        columns=feature_cols
+    )
+
+    alt_raw = float(model.predict(alt_feature_row)[0])
+    alt_blend = 0.7 * alt_raw + 0.3 * bowl_avg_att
+
+    bowl_lower = bowl_choice.lower()
+    if ("hawai" in bowl_lower) or ("bahamas" in bowl_lower):
+        alt_final = alt_raw
+    else:
+        alt_final = alt_blend
+
+    # apply boosts as before
+    boosts = [
+        ("gator", 1.05),
+        ("pop-tarts", 1.05),
+        ("pop tarts", 1.05),
+        ("texas bowl", 1.05),
+        ("music city", 1.05),
+        ("alamo", 1.10),
+        ("duke’s mayo", 1.03),
+        ("duke's mayo", 1.03),
+    ]
+    for key, factor in boosts:
+        if key in bowl_lower:
+            alt_final *= factor
+            break
+
+    alt_final = min(max(alt_final, 0.0), alt_capacity)
+    alt_pct_filled = alt_final / alt_capacity if alt_capacity > 0 else 0.0
+
+    st.write(f"**Alternative Venue:** {alt_venue_choice}")
+    st.write(f"Predicted Attendance: **{alt_final:,.0f}**")
+    st.write(f"Capacity: {alt_capacity:,.0f} | Projected % Filled: {alt_pct_filled:.1%}")
+
+# =====================================================
+# TEAM SCORECARDS + MATCHUP SCORECARD
+# =====================================================
+st.header("Team & Matchup Scorecards")
+
+col_team1, col_team2 = st.columns(2)
+
+with col_team1:
+    st.subheader(f"Team 1: {team1}")
+    st.write(f"Conference: {row1.get('Football FBS Conference', '')}")
+    st.write(f"Wins ({PRED_YEAR}): {t1_wins}")
+    st.write(f"AP Strength Score ({PRED_YEAR}): {t1_ap_strength:.1f}")
+    st.write(f"Brand Power: {t1_brand:,.0f}")
+    st.write(f"Fanbase Size Index: {t1_fanbase:,.0f}")
+    st.write(f"Distance to Venue: {team1_miles:.0f} miles")
+    st.write(f"Alumni Dispersion: {row1.get('Alumni Dispersion', '')}")
+
+with col_team2:
+    st.subheader(f"Team 2: {team2}")
+    st.write(f"Conference: {row2.get('Football FBS Conference', '')}")
+    st.write(f"Wins ({PRED_YEAR}): {t2_wins}")
+    st.write(f"AP Strength Score ({PRED_YEAR}): {t2_ap_strength:.1f}")
+    st.write(f"Brand Power: {t2_brand:,.0f}")
+    st.write(f"Fanbase Size Index: {t2_fanbase:,.0f}")
+    st.write(f"Distance to Venue: {team2_miles:.0f} miles")
+    st.write(f"Alumni Dispersion: {row2.get('Alumni Dispersion', '')}")
+
+st.subheader("Matchup Scorecard")
+
+st.write(f"**Predicted Attendance:** {final_pred:,.0f}")
+st.write(f"**Confidence Interval:** {ci_low:,.0f} – {ci_high:,.0f}")
+st.write(f"**Model Stability Score:** {stability_score:.1f} / 10")
+st.write(f"**Travel Propensity Score:** {travel_score:.1f} / 10")
+st.write(f"**Sellout Probability:** {sellout_prob*100:.1f}%")
+st.write(f"**Matchup Power Score:** {matchup_power} (2 = P4vP4, 1 = P4vG5, 0 = G5vG5)")
+
+# =====================================================
+# SCENARIO SAVING
+# =====================================================
+st.header("💾 Save Scenario")
+
+if "scenario_context" in st.session_state:
+    ctx = st.session_state["scenario_context"]
+
+    folder_name = st.text_input("Scenario Folder / Group", "2025 Bowl Predictions")
+    default_scenario_name = f"{ctx['bowl']} – {ctx['team1']} vs {ctx['team2']}"
+    scenario_name = st.text_input("Scenario Name", default_scenario_name)
+
+    if st.button("Save This Scenario"):
+        scenario_row = {
+            "folder": folder_name,
+            "scenario_name": scenario_name,
+            "year": ctx["PRED_YEAR"],
+            "bowl": ctx["bowl"],
+            "venue": ctx["venue"],
+            "team1": ctx["team1"],
+            "team2": ctx["team2"],
+            "predicted_attendance": ctx["final_pred"],
+            "ci_low": ctx["ci_low"],
+            "ci_high": ctx["ci_high"],
+            "stability_score": ctx["stability_score"],
+            "travel_score": ctx["travel_score"],
+            "sellout_prob": ctx["sellout_prob"],
+            "risk_label": ctx["risk_label"],
+            "bowl_avg_att": ctx["bowl_avg_att"],
+            "venue_capacity": ctx["venue_capacity"],
+        }
+
+        try:
+            existing = pd.read_csv("saved_scenarios.csv")
+            existing = pd.concat([existing, pd.DataFrame([scenario_row])], ignore_index=True)
+        except FileNotFoundError:
+            existing = pd.DataFrame([scenario_row])
+
+        existing.to_csv("saved_scenarios.csv", index=False)
+        st.success("Scenario saved.")
+else:
+    st.write("Run a prediction to save scenarios.")
+
+st.subheader("📁 Saved Scenarios")
+
+try:
+    saved = pd.read_csv("saved_scenarios.csv")
+    folder_options = sorted(saved["folder"].unique())
+    selected_folder = st.selectbox("Select Scenario Folder", folder_options)
+    st.dataframe(saved[saved["folder"] == selected_folder])
+except FileNotFoundError:
+    st.write("No scenarios saved yet.")
+
+# =====================================================
+# CONFIDENCE INTERVALS + MODEL STABILITY + RISK
+# =====================================================
+
+st.subheader("Uncertainty & Risk")
+
+# --- Confidence Interval (simple % band around prediction) ---
+# You can tune this; 0.08 = ±8%
+ci_width = 0.08
+ci_low = max(0.0, final_pred * (1 - ci_width))
+ci_high = final_pred * (1 + ci_width)
+
+st.write(
+    f"Estimated Confidence Interval (±{int(ci_width*100)}%): "
+    f"**{ci_low:,.0f} – {ci_high:,.0f}**"
+)
+
+# --- Model Stability Score (0–10) ---
+stability_score = 10.0
+
+# penalize very long average travel
+if avg_distance > 1000:
+    stability_score -= 2
+elif avg_distance > 700:
+    stability_score -= 1
+
+# penalize small combined fanbase compared to calibration median
+if calib_combined_log_median is not None and combined_fanbase_log < calib_combined_log_median:
+    stability_score -= 2
+
+# G5 vs G5: slightly less stable attendance
+if matchup_power == 0:
+    stability_score -= 1
+
+# high imbalance introduces volatility
+if distance_imbalance > 400:
+    stability_score -= 1
+
+stability_score = max(1.0, min(10.0, stability_score))
+
+st.write(f"**Model Stability Score:** {stability_score:.1f} / 10")
+
+# --- Color-Coded Risk Indicator ---
+# Higher stability -> lower risk
+risk_raw = 1.0 - (stability_score / 10.0)
+
+if risk_raw <= 0.3:
+    risk_label = "Low Risk"
+    risk_color = "#2ecc71"  # green
+elif risk_raw <= 0.6:
+    risk_label = "Moderate Risk"
+    risk_color = "#f1c40f"  # yellow
+else:
+    risk_label = "High Risk"
+    risk_color = "#e74c3c"  # red
+
+st.markdown(
+    f"""
+    <div style="
+        display:inline-block;
+        padding:6px 12px;
+        border-radius:16px;
+        background-color:{risk_color};
+        color:white;
+        font-weight:bold;
+        margin-top:4px;
+    ">
+    {risk_label}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =====================================================
+# TRAVEL PROPENSITY + SELLOUT PROBABILITY
+# =====================================================
+
+st.subheader("Travel Behavior & Sellout Likelihood")
+
+# --- Travel Propensity Score (0–10) ---
+travel_score = 10.0
+
+# longer distances reduce travel propensity
+if avg_distance > 1200:
+    travel_score -= 3
+elif avg_distance > 800:
+    travel_score -= 2
+elif avg_distance > 500:
+    travel_score -= 1
+
+# local or near-local team boosts
+if local_flag == 1:
+    travel_score += 2
+elif distance_min < 250:
+    travel_score += 1
+
+# stronger fanbases travel better
+if calib_combined_log_median is not None:
+    if combined_fanbase_log > calib_combined_log_median + 0.2:
+        travel_score += 1
+    elif combined_fanbase_log < calib_combined_log_median - 0.2:
+        travel_score -= 1
+
+# big brands travel well
+big_brands = [
+    "Michigan", "Ohio State", "Texas", "LSU", "Alabama", "Georgia",
+    "Notre Dame", "USC", "Oklahoma", "Penn State", "Oregon",
+    "Florida State", "Clemson", "Tennessee", "Auburn"
+]
+for t in [team1, team2]:
+    if any(b.lower() in t.lower() for b in big_brands):
+        travel_score += 1
+
+travel_score = max(1.0, min(10.0, travel_score))
+st.write(f"**Travel Propensity Score:** {travel_score:.1f} / 10")
+
+# --- Venue Sellout Probability ---
+fill_ratio = final_pred / venue_capacity if venue_capacity > 0 else 0
+
+# base probability on projected fill ratio
+sellout_prob = fill_ratio
+
+# bowl tier bump
+if bowl_tier >= 2:
+    sellout_prob += 0.05
+
+# strong matchup bump
+if matchup_power == 2:
+    sellout_prob += 0.05
+
+# adjust slightly by stability
+sellout_prob += (stability_score - 5) * 0.01  # +/-5% range
+
+sellout_prob = float(np.clip(sellout_prob, 0.0, 1.0))
+
+st.write(f"**Estimated Sellout Probability:** {sellout_prob*100:.1f}%")
+
+
+# =====================================================
+# FEATURE BREAKDOWN PANEL
+# =====================================================
+st.subheader("📊 Top Model Drivers for This Prediction")
+
 importances = model.feature_importances_
 
 feat_df = pd.DataFrame({
@@ -511,16 +925,14 @@ feat_df = pd.DataFrame({
     "Value": feature_row.iloc[0].values
 })
 
-# Normalize importances for readability
 feat_df = feat_df.sort_values("Importance", ascending=False)
 top_feats = feat_df.head(10)
 
-# Display table
-st.write("Top 10 Model Drivers:")
+st.write("Top 10 Features by Importance:")
 st.dataframe(top_feats)
 
-# Plot bar chart
 st.bar_chart(top_feats.set_index("Feature")["Importance"])
+
 
 # =====================================================
 # ALTERNATIVE SCENARIO: Swap Team 1 or Team 2
