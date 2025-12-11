@@ -824,6 +824,147 @@ if st.button("Run Prediction"):
     st.markdown(f"**Local Alumni:** {alumni_factor*100:.1f}%")
     st.markdown(f"**Students:** {student_factor*100:.1f}%")
     st.markdown(f"**General Public / Neutral Fans:** {general_public*100:.1f}%")
+
+    # =====================================================
+    # MATCHUP FIT SCORE (0–100)
+    # =====================================================
+    st.subheader("🔗 Matchup Fit Score")
+
+    mfs = 50  # baseline fit
+
+    # ---------------------------------------
+    # 1. Geographic Fit Score
+    # ---------------------------------------
+    # Distance difference → rivalry / regional relevance
+    if distance_min <= 200:
+        mfs += 12
+    elif distance_min <= 400:
+        mfs += 8
+    elif distance_min <= 800:
+        mfs += 4
+
+    # Geographic region match boosts relevance
+    t1_state = str(row1.get("State", "")).lower()
+    t2_state = str(row2.get("State", "")).lower()
+    venue_state = str(venue_row.get("State", "")).lower()
+
+    # Same state as venue
+    if t1_state == venue_state:
+        mfs += 10
+    if t2_state == venue_state:
+        mfs += 10
+
+    # Same region = higher fan interest
+    if t1_state in ["tx","ok","la","ar","nm"] and t2_state in ["tx","ok","la","ar","nm"]:
+        mfs += 8
+    if t1_state in ["fl","ga","sc","nc","al"] and t2_state in ["fl","ga","sc","nc","al"]:
+        mfs += 8
+    if t1_state in ["ca","az","nv","or","wa"] and t2_state in ["ca","az","nv","or","wa"]:
+        mfs += 8
+
+    # ---------------------------------------
+    # 2. Conference Fit
+    # ---------------------------------------
+    conf1 = str(row1.get("Football FBS Conference", "")).lower()
+    conf2 = str(row2.get("Football FBS Conference", "")).lower()
+
+    # same conference → strong familiarity
+    if conf1 == conf2:
+        mfs += 6
+
+    # P4 vs P4 improves bowl resonance
+    if matchup_power == 2:
+        mfs += 12
+    elif matchup_power == 1:
+        mfs += 6
+    else:
+        mfs += 2
+
+    # ---------------------------------------
+    # 3. Alumni Fit
+    # ---------------------------------------
+    alumni1 = str(row1.get("Alumni Dispersion", "")).lower()
+    alumni2 = str(row2.get("Alumni Dispersion", "")).lower()
+
+    # local alumni correlate with high bowl relevance
+    if "local" in alumni1:
+        mfs += 6
+    if "local" in alumni2:
+        mfs += 6
+
+    # regional alumni → moderate fit
+    if "regional" in alumni1:
+        mfs += 4
+    if "regional" in alumni2:
+        mfs += 4
+
+    # national alumni → high travel + recognition
+    if "national" in alumni1:
+        mfs += 3
+    if "national" in alumni2:
+        mfs += 3
+
+    # ---------------------------------------
+    # 4. Brand Fit
+    # ---------------------------------------
+    avg_brand = (t1_brand + t2_brand) / 2
+    if avg_brand > 75:
+        mfs += 12
+    elif avg_brand > 55:
+        mfs += 8
+    elif avg_brand > 40:
+        mfs += 4
+
+    # power brands add fit everywhere
+    if any(big in row1.get("Team Name","").lower() for big in ["texas","michigan","lsu","ohio","alabama","georgia","notre dame"]):
+        mfs += 6
+    if any(big in row2.get("Team Name","").lower() for big in ["texas","michigan","lsu","ohio","alabama","georgia","notre dame"]):
+        mfs += 6
+
+    # ---------------------------------------
+    # 5. Competitive Fit
+    # ---------------------------------------
+    ap_diff = abs(t1_ap_strength - t2_ap_strength)
+    talent_diff = abs(t1_talent - t2_talent)
+
+    # closer matchups = more interest
+    if ap_diff <= 5:
+        mfs += 7
+    elif ap_diff <= 12:
+        mfs += 4
+
+    if talent_diff <= 30:
+        mfs += 6
+    elif talent_diff <= 70:
+        mfs += 3
+
+    # clamp
+    mfs = max(0, min(100, mfs))
+
+    st.metric("Matchup Fit Score", f"{mfs} / 100")
+
+    # Fit category
+    if mfs >= 85:
+        st.write("Fit Category: **Excellent Regional or Conference Matchup**")
+    elif mfs >= 70:
+        st.write("Fit Category: **Strong Overall Bowl Fit**")
+    elif mfs >= 55:
+        st.write("Fit Category: **Moderate Fit**")
+    else:
+        st.write("Fit Category: **Limited Natural Fit**")
+
+    # Quick explanation bullets
+    st.write("Key Fit Drivers:")
+    if distance_min < 300:
+        st.write("- Teams are geographically well-aligned for travel")
+    if conf1 == conf2:
+        st.write("- Conference familiarity enhances matchup relevance")
+    if avg_brand > 50:
+        st.write("- Strong brand presence supports bowl resonance")
+    if "local" in alumni1 or "local" in alumni2:
+        st.write("- Significant local alumni presence boosts turnout")
+    if ap_diff < 10:
+        st.write("- Competitive balance improves matchup interest")
     
     # =====================================================
     # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
