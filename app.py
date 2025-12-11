@@ -14,7 +14,7 @@ PRED_YEAR = 2025  # using 2025 stats for predictions
 TEAM_FILE = "2025 Bowl Games - UI Team Lookup.csv"
 VENUE_FILE = "2025 Bowl Games - UI Venue Lookup.csv"
 BOWL_TIERS_FILE = "2025 Bowl Games - Bowl Tiers.csv"
-CALIB_FILE = "2025 Bowl Games - 2025 Bowl Games (8).csv"  # your 2025 master
+CALIB_FILE = "2025 Bowl Games - 2022-2024 Bowl Games (7).csv"  # your 2025 master
 
 MODEL_FILE = "attendance_model.pkl"
 FEATURE_COLS_FILE = "feature_columns.pkl"
@@ -754,7 +754,20 @@ if st.button("Run Prediction"):
     # =====================================================
     # SAVE CONTEXT FOR OTHER PANELS
     # =====================================================
-    st.session_state["last_features"] = row_data
+    if "scenario_history" not in st.session_state:
+    st.session_state["scenario_history"] = []
+
+st.session_state["scenario_history"].append(
+    {
+        "features": row_data,
+        "prediction": final_pred,
+        "team1": team1,
+        "team2": team2,
+        "bowl": bowl_choice,
+        "venue": venue_choice,
+    }
+)
+
     st.session_state["last_prediction"] = final_pred
 
     st.session_state["scenario_context"] = {
@@ -781,8 +794,18 @@ if st.button("Run Prediction"):
 
 st.header("Similar Historical Matchups")
 
-if "last_features" in st.session_state:
-    current_features = st.session_state["last_features"]
+if "scenario_history" in st.session_state and len(st.session_state["scenario_history"]) > 0:
+    # let user choose which scenario to analyze
+    names = [
+        f"{s['team1']} vs {s['team2']} ({s['bowl']})"
+        for s in st.session_state["scenario_history"]
+    ]
+    selected = st.selectbox("Select a scenario to compare", names)
+    idx = names.index(selected)
+    current_features = st.session_state["scenario_history"][idx]["features"]
+else:
+    st.write("Run a prediction to enable scenario comparison.")
+    current_features = None
 
     sim_cols = [
         "Avg Distace Traveled",
@@ -791,6 +814,7 @@ if "last_features" in st.session_state:
         "Bowl Tier"
     ]
 
+    calib_sim = calib_sim[calib_sim["Year"] < 2025]
     calib_sim = calib.copy()
     for c in sim_cols:
         calib_sim[c] = pd.to_numeric(calib_sim[c], errors="coerce")
