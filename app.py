@@ -156,6 +156,51 @@ def safe_num(x, default=0.0):
     except Exception:
         return default
 
+def compute_final_attendance(raw_pred, bowl_name, bowl_avg_att, venue_capacity):
+    """
+    Reproduce the exact logic from the 2025 'Final Attendance Prediction' column.
+    """
+
+    bowl_lower = str(bowl_name).lower()
+
+    # 1) 70/30 blended prediction
+    blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
+
+    # 2) Hawaii & Bahamas use raw model prediction
+    if ("hawai" in bowl_lower) or ("bahamas" in bowl_lower):
+        base = raw_pred
+    else:
+        base = blended_pred
+
+    # 3) Xbox Bowl manual cap at 6,500 (matches your CSV override)
+    if "xbox" in bowl_lower:
+        base = min(base, 6500.0)
+
+    # 4) Bowl-specific boosts
+    boosts = [
+        ("gator", 1.05),
+        ("pop-tart", 1.05),
+        ("pop tarts", 1.05),
+        ("pop tarts", 1.05),
+        ("texas bowl", 1.05),
+        ("music city", 1.05),
+        ("alamo", 1.10),
+        ("duke’s mayo", 1.03),
+        ("duke's mayo", 1.03),
+    ]
+
+    for key, factor in boosts:
+        if key in bowl_lower:
+            base *= factor
+            break
+
+    # 5) Capacity cap + floor
+    final_pred = min(base, venue_capacity)
+    final_pred = max(final_pred, 0.0)
+
+    return final_pred
+
+
 def estimate_travel_hours(miles: float) -> float:
     """Very rough travel time estimate in hours."""
     if miles <= 0:
@@ -589,41 +634,17 @@ st.header("Prediction")
 
 if st.button("Run Prediction"):
 
-    # Raw model prediction
     raw_pred = float(model.predict(feature_row)[0])
 
-    # 70/30 blend with historical average
-    blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
-
-    bowl_lower = bowl_choice.lower()
-
-    # Special case: Hawai'i & Bahamas bowls use raw only
-    if ("hawai" in bowl_lower) or ("bahamas" in bowl_lower):
-        final_pred = raw_pred
-    else:
-        final_pred = blended_pred
-
-    # Bowl-specific boosts
-    boosts = [
-        ("gator", 1.05),
-        ("pop-tarts", 1.05),
-        ("pop tarts", 1.05),
-        ("texas bowl", 1.05),
-        ("music city", 1.05),
-        ("alamo", 1.10),
-        ("duke’s mayo", 1.03),
-        ("duke's mayo", 1.03),
-    ]
-    for key, factor in boosts:
-        if key in bowl_lower:
-            final_pred *= factor
-            break
-
-    # Capacity cap + floor
-    final_pred = min(final_pred, venue_capacity)
-    final_pred = max(final_pred, 0.0)
+    final_pred = compute_final_attendance(
+        raw_pred=raw_pred,
+        bowl_name=bowl_choice,
+        bowl_avg_att=bowl_avg_att,
+        venue_capacity=venue_capacity,
+    )
 
     pct_filled = final_pred / venue_capacity if venue_capacity > 0 else 0.0
+
 
     # Side-by-side comparison
     st.subheader("📊 Attendance Comparison")
@@ -1580,32 +1601,17 @@ if st.button("Run Alternative Venue Scenario"):
         columns=feature_cols
     )
 
-    alt_raw = float(model.predict(alt_feature_row)[0])
-    alt_blend = 0.7 * alt_raw + 0.3 * bowl_avg_att
+       alt_raw = float(model.predict(alt_feature_row)[0])
 
-    bowl_lower = bowl_choice.lower()
-    if ("hawai" in bowl_lower) or ("bahamas" in bowl_lower):
-        alt_final = alt_raw
-    else:
-        alt_final = alt_blend
+    alt_final = compute_final_attendance(
+        raw_pred=alt_raw,
+        bowl_name=bowl_choice,
+        bowl_avg_att=bowl_avg_att,
+        venue_capacity=alt_capacity,
+    )
 
-    boosts = [
-        ("gator", 1.05),
-        ("pop-tarts", 1.05),
-        ("pop tarts", 1.05),
-        ("texas bowl", 1.05),
-        ("music city", 1.05),
-        ("alamo", 1.10),
-        ("duke’s mayo", 1.03),
-        ("duke's mayo", 1.03),
-    ]
-    for key, factor in boosts:
-        if key in bowl_lower:
-            alt_final *= factor
-            break
-
-    alt_final = min(max(alt_final, 0.0), alt_capacity)
     alt_pct_filled = alt_final / alt_capacity if alt_capacity > 0 else 0.0
+
 
     st.write(f"**Alternative Venue:** {alt_venue_choice}")
     st.write(f"Predicted Attendance: **{alt_final:,.0f}**")
