@@ -668,6 +668,108 @@ if st.button("Run Prediction"):
     else:
         st.write("Projected Market Impact: **Limited**")
 
+        # =====================================================
+    # SPONSOR VISIBILITY SCORE (SVS)
+    # =====================================================
+    st.subheader("📢 Sponsor Visibility Score")
+
+    svs = 50  # baseline
+
+    # ---- Bowl tier boost ----
+    if bowl_tier >= 3:
+        svs += 15
+    elif bowl_tier == 2:
+        svs += 8
+    else:
+        svs += 3
+
+    # ---- Combined fanbase size ----
+    if combined_fanbase_log > 6.2:  # extremely large combined fanbases
+        svs += 15
+    elif combined_fanbase_log > 5.7:
+        svs += 10
+    elif combined_fanbase_log > 5.3:
+        svs += 5
+
+    # ---- Brand power effect ----
+    avg_brand = (t1_brand + t2_brand) / 2
+    if avg_brand > 75:
+        svs += 10
+    elif avg_brand > 55:
+        svs += 6
+    elif avg_brand > 40:
+        svs += 3
+
+    # ---- Matchup strength ----
+    if matchup_power == 2:
+        svs += 12
+    elif matchup_power == 1:
+        svs += 6
+    else:
+        svs += 2
+
+    # ---- AP Strength & Wins ----
+    avg_ap_strength = (t1_ap_strength + t2_ap_strength) / 2
+    combined_wins = t1_wins + t2_wins
+
+    if combined_wins >= 17:
+        svs += 8
+    elif combined_wins >= 14:
+        svs += 5
+    else:
+        svs += 2
+
+    if avg_ap_strength <= 20 and avg_ap_strength > 0:
+        svs += 7
+    elif avg_ap_strength <= 35:
+        svs += 4
+
+    # ---- Attendance projection effect ----
+    if final_pred > 60000:
+        svs += 12
+    elif final_pred > 40000:
+        svs += 7
+    elif final_pred > 25000:
+        svs += 4
+    else:
+        svs += 1
+
+    # ---- Travel & energy factor (uses TVI) ----
+    if avg_tvi > 75:
+        svs += 6
+    elif avg_tvi > 55:
+        svs += 4
+    else:
+        svs += 1
+
+    # clamp
+    svs = max(0, min(100, svs))
+
+    st.metric("Sponsor Visibility Score", f"{svs} / 100")
+
+    # ---- Classification labels ----
+    if svs >= 85:
+        st.write("Exposure Classification: **Premium Event for Sponsors**")
+    elif svs >= 70:
+        st.write("Exposure Classification: **High-Value Matchup**")
+    elif svs >= 55:
+        st.write("Exposure Classification: **Moderate Visibility**")
+    else:
+        st.write("Exposure Classification: **Low to Medium Visibility**")
+
+    # ---- Rationale summary ----
+    st.write("Key Visibility Drivers:")
+    if avg_brand > 60:
+        st.write("- Strong team brand presence")
+    if combined_fanbase_log > 5.7:
+        st.write("- Large combined fanbase reach")
+    if final_pred > 45000:
+        st.write("- High in-stadium exposure expected")
+    if matchup_power == 2:
+        st.write("- Premium P4 vs. P4 matchup")
+    if avg_tvi > 60:
+        st.write("- Highly engaged, traveling fanbases")
+
     
     # =====================================================
     # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
