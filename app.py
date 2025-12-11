@@ -436,36 +436,79 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
-    # =================================================
-    # KEY DRIVER SUMMARY
-    # =================================================
-    st.subheader("Key Driver Summary")
-    drivers = []
+    # =====================================================
+# ENHANCED KEY DRIVER SUMMARY
+# =====================================================
+st.subheader("Key Driver Summary")
 
-    if distance_min < 150:
-        drivers.append("At least one team is within strong drive range (<150 miles).")
+drivers = []
 
-    if distance_imbalance > 400:
-        drivers.append("There is a significant travel imbalance between the fanbases.")
+# -------- TEAM PROXIMITY --------
+if distance_min < 100:
+    drivers.append("At least one team is very close to the venue (<100 miles), which strongly boosts attendance due to drive-in ease.")
+elif distance_min < 250:
+    drivers.append("A nearby team (<250 miles) provides a solid regional attendance lift.")
+elif distance_min < 500:
+    drivers.append("Both teams are within reasonable travel distance, supporting moderate fan travel.")
+else:
+    drivers.append("Both teams face longer travel distances, which historically moderates attendance.")
 
-    if calib_combined_log_median is not None and combined_fanbase_log > calib_combined_log_median:
-        drivers.append("Combined fanbase size is well above typical FBS levels.")
+# -------- LONG TRAVEL IMBALANCE --------
+if distance_imbalance > 400:
+    drivers.append("There is a major travel imbalance between fanbases, meaning one school may dominate in-person turnout.")
 
-    if matchup_power == 2:
-        drivers.append("Power vs. Power matchup elevates national interest.")
-    elif matchup_power == 1:
-        drivers.append("Presence of at least one power-conference team lifts demand.")
+# -------- BIG BRAND PROGRAMS --------
+big_brands = [
+    "Michigan", "Ohio State", "Texas", "LSU", "Alabama", "Georgia",
+    "Notre Dame", "Oklahoma", "USC", "Penn State", "Oregon",
+    "Florida State", "Clemson", "Tennessee", "Auburn"
+]
 
-    if local_flag == 1:
-        drivers.append("A local or near-local team strongly supports attendance.")
+brands_present = []
+for t in [team1, team2]:
+    for brand in big_brands:
+        if brand.lower() in t.lower():
+            brands_present.append(brand)
 
-    if not drivers:
-        drivers.append("This matchup aligns with typical bowl attendance patterns in our model.")
+if brands_present:
+    bp_str = ", ".join(sorted(set(brands_present)))
+    drivers.append(f"National brands present ({bp_str}). These programs traditionally travel well and elevate overall demand.")
 
-    for d in drivers:
-        st.write("• " + d)
+# -------- FANBASE STRENGTH --------
+if combined_fanbase_log > calib_combined_log_median + 0.2:
+    drivers.append("The combined fanbase size is significantly larger than typical FBS matchups, supporting stronger turnout.")
+elif combined_fanbase_log < calib_combined_log_median - 0.2:
+    drivers.append("This matchup features smaller fanbases, which historically leads to more modest attendance figures.")
 
+# -------- MATCHUP QUALITY --------
+if matchup_power == 2:
+    drivers.append("Power vs. Power matchup substantially increases national interest and in-person attendance.")
+elif matchup_power == 1:
+    drivers.append("Having at least one Power Conference team helps boost the appeal of this bowl.")
+else:
+    drivers.append("Group of Five vs Group of Five matchups typically rely more on regional proximity for attendance strength.")
 
+# -------- CONFERENCE BRAND EFFECT --------
+if SEC_present:
+    drivers.append("An SEC program is participating — SEC teams historically generate high demand and strong travel behavior.")
+if B10_present:
+    drivers.append("A Big Ten program is participating — their fans traditionally travel well and lift bowl attendance.")
+if ACC_present:
+    drivers.append("An ACC team contributes added brand visibility.")
+if B12_present:
+    drivers.append("A Big 12 program adds solid regional and national interest.")
 
+# -------- LOCAL FANBASE EFFECT --------
+if local_flag == 1:
+    drivers.append("The presence of a local or near-local team provides a significant attendance boost.")
 
+# -------- VENUE & MARKET -------—
+if venue_tier >= 2:
+    drivers.append("This game is hosted in a high-tier venue, enhancing the bowl experience and spectator draw.")
 
+# -------- DEFAULT IF EMPTY --------
+if not drivers:
+    drivers.append("This matchup aligns with typical bowl attendance patterns in our model.")
+
+for d in drivers:
+    st.write("• " + d)
