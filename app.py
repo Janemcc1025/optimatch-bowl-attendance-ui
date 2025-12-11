@@ -2,121 +2,196 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+from math import radians, sin, cos, sqrt, atan2
 
 # -----------------------------------
-# LOAD MODEL + FEATURE COLUMNS
+# LOAD MODEL + FEATURES
 # -----------------------------------
 model = joblib.load("attendance_model.pkl")
 feature_cols = joblib.load("feature_columns.pkl")
 
-st.title("Optimatch Bowl Attendance Predictor")
-st.write("""
-This tool uses CSMG's Gradient Boosted Regression model to estimate attendance 
-for future bowl matchups based on fanbase size, travel distance, brand power, 
-team strength, and bowl-specific factors.
-""")
+# -----------------------------------
+# LOAD LOOKUP TABLES
+# -----------------------------------
+teams = pd.read_csv("2025 Bowl Games - UI Team Lookup.csv")
+venues = pd.read_csv("2025 Bowl Games - UI Venue Lookup.csv")
+bowl_tiers = pd.read_csv("2025 Bowl Games - Bowl Tiers.csv")
+
+team_list = sorted(teams["Team"].unique())
+bowl_list = sorted(venues["Bowl Game Name"].unique())
 
 # -----------------------------------
-# USER INPUTS
+# HELPER: DISTANCE CALCULATION
 # -----------------------------------
-st.header("Matchup Inputs")
+def haversine(lat1, lon1, lat2, lon2):
+    R = 3958.8  # miles
+    dLat = radians(lat2 - lat1)
+    dLon = radians(lon2 - lon1)
+    lat1 = radians(lat1)
+    lat2 = radians(lat2)
 
-team1 = st.text_input("Team 1 Name")
-team2 = st.text_input("Team 2 Name")
-
-team1_ap = st.number_input("Team 1 AP Ranking (0 if unranked)", 0, 50, 0)
-team2_ap = st.number_input("Team 2 AP Ranking (0 if unranked)", 0, 50, 0)
-
-team1_wins = st.number_input("Team 1 Wins", 0, 15, 0)
-team2_wins = st.number_input("Team 2 Wins", 0, 15, 0)
-
-team1_talent = st.number_input("Team 1 247 Talent Composite Score", 0.0, 1000.0, 600.0)
-team2_talent = st.number_input("Team 2 247 Talent Composite Score", 0.0, 1000.0, 600.0)
-
-team1_brand = st.number_input("Team 1 Brand Power", 0.0, 500000.0, 0.0)
-team2_brand = st.number_input("Team 2 Brand Power", 0.0, 500000.0, 0.0)
-
-venue_tier = st.selectbox("Venue Tier", [1, 2, 3])
-venue_capacity = st.number_input("Venue Capacity", 0, 120000, 50000)
-
-team1_miles = st.number_input("Team 1 Distance to Venue (miles)", 0.0, 3000.0, 0.0)
-team2_miles = st.number_input("Team 2 Distance to Venue (miles)", 0.0, 3000.0, 0.0)
-
-weekend_flag = 1 if st.checkbox("Weekend Game?") else 0
-
-matchup_power = st.selectbox(
-    "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)",
-    [2, 1, 0]
-)
-
-bowl_tier = st.selectbox("Bowl Tier", [1, 2, 3])
-
-bowl_avg_att = st.number_input("Historical Bowl Avg Attendance", 0, 100000, 0)
+    a = sin(dLat/2)**2 + cos(lat1)*cos(lat2)*sin(dLon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
 
 # -----------------------------------
-# BUILD FEATURE VECTOR FOR MODEL
+# STREAMLIT UI
 # -----------------------------------
-def build_feature_row():
-    data = {
-        "Team 1 AP Ranking": team1_ap,
-        "Team 1 Wins": team1_wins,
-        "Team 1 247 Talent Composite Score": team1_talent,
-        "Team 1 Brand Power": team1_brand,
+st.set_page_config(page_title="Optimatch Bowl Attendance Predictor", layout="wide")
 
-        "Team 2 AP Ranking": team2_ap,
-        "Team 2 Wins": team2_wins,
-        "Team 2 247 Talent Composite Score": team2_talent,
-        "Team 2 Brand Power": team2_brand,
+st.title("🏈 Optimatch Bowl Attendance Predictor")
+st.write("Predict bowl attendance using CSMG’s Gradient Boosted Model + full Optimatch feature engine.")
 
-        "Venue Tier": venue_tier,
+# -----------------------------------
+# SELECT BOWL
+# -----------------------------------
+st.header("Select Bowl Game")
+bowl_choice = st.selectbox("Bowl Game", bowl_list)
 
-        "Team 1 Miles to Venue": team1_miles,
-        "Team 2 Miles to Venue": team2_miles,
+venue_row = venues[venues["Bowl Game Name"] == bowl_choice].iloc[0]
+venue_name = venue_row["Venue"]
+venue_capacity = venue_row["Venue Capacity"]
+venue_lat = venue_row["Venue Lat"]
+venue_lon = venue_row["Venue Lon"]
+venue_tier = venue_row["Venue Tier"]
+bowl_avg_att = venue_row["Bowl Avg Attendees"]
 
-        "Avg Wins": (team1_wins + team2_wins) / 2,
-        "Total Wins": team1_wins + team2_wins,
-        "Avg AP Ranking": (team1_ap + team2_ap) / 2,
-        "Best AP Ranking": min(team1_ap, team2_ap),
-        "Worst AP Ranking": max(team1_ap, team2_ap),
+st.subheader(f"Venue: {venue_name}")
+st.write(f"Capacity: {venue_capacity:,}")
 
-        "SEC Present": 0,
-        "Big 10 Present": 0,
-        "Big 12 Present": 0,
-        "ACC Present": 0,
+# -----------------------------------
+# SELECT TEAMS
+# -----------------------------------
+st.header("Select Teams")
 
-        "Avg Distace Traveled": (team1_miles + team2_miles) / 2,
-        "Distance Minimum": min(team1_miles, team2_miles),
-        "Distance Imbalance": abs(team1_miles - team2_miles),
+col1, col2 = st.columns(2)
 
-        "Weekend Indicator (Weekend=1, Else 0)": weekend_flag,
-        "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)": matchup_power,
-        "Bowl Tier": bowl_tier,
-        "Bowl Ownership": 0,
-        "Local Team Indicator": 1 if min(team1_miles, team2_miles) < 75 else 0,
-        "AP Strength Score": 0,
+with col1:
+    team1 = st.selectbox("Team 1", team_list)
 
-        "Combined Fanbase (Log transformed)": 0,
-        "MinMax Scale Distcance": 0,
-        "AP Strength Normalized": 0,
+with col2:
+    team2 = st.selectbox("Team 2", team_list)
 
-        "Bowl Avg Viewers": 0,
-        "Bowl Avg Attendees": bowl_avg_att
-    }
+row1 = teams[teams["Team"] == team1].iloc[0]
+row2 = teams[teams["Team"] == team2].iloc[0]
 
-    # Return row in the correct column order
-    row = [data.get(col, 0) for col in feature_cols]
-    return pd.DataFrame([row], columns=feature_cols)
+# -----------------------------------
+# FEATURE ENGINEERING
+# -----------------------------------
+team1_miles = haversine(row1["Lat"], row1["Lon"], venue_lat, venue_lon)
+team2_miles = haversine(row2["Lat"], row2["Lon"], venue_lat, venue_lon)
+
+avg_wins = (row1["Wins"] + row2["Wins"]) / 2
+total_wins = row1["Wins"] + row2["Wins"]
+
+ap_values = [x for x in [row1["AP Rank"], row2["AP Rank"]] if x > 0]
+avg_ap = np.mean(ap_values) if ap_values else 0
+best_ap = min(ap_values) if ap_values else 0
+worst_ap = max(ap_values) if ap_values else 0
+
+distance_min = min(team1_miles, team2_miles)
+distance_imbalance = abs(team1_miles - team2_miles)
+avg_distance = (team1_miles + team2_miles) / 2
+
+local_flag = 1 if distance_min < 75 else 0
+
+# Matchup Power Score
+conf1 = row1["Conference"]
+conf2 = row2["Conference"]
+power_confs = ["SEC", "Big 10", "Big 12", "ACC"]
+
+if conf1 in power_confs and conf2 in power_confs:
+    matchup_power = 2
+elif conf1 in power_confs or conf2 in power_confs:
+    matchup_power = 1
+else:
+    matchup_power = 0
+
+# Bowl Tier + Ownership
+bowl_info = bowl_tiers[bowl_tiers["Bowl Game Name"] == bowl_choice].iloc[0]
+bowl_tier = bowl_info["Bowl Tier"]
+bowl_owner = bowl_info["Bowl Ownership"]
+
+# Weekend Flag
+import datetime
+game_date = venue_row["Date"]
+weekday = pd.to_datetime(game_date).weekday()
+weekend_flag = 1 if weekday >= 5 else 0
+
+# Combined Fanbase Log
+combined_fanbase = row1["Fanbase Size"] + row2["Fanbase Size"]
+combined_fanbase_log = np.log1p(combined_fanbase)
+
+# -----------------------------------
+# BUILD MODEL INPUT ROW
+# -----------------------------------
+feature_row = pd.DataFrame([[
+
+    row1["AP Rank"], row1["Wins"], row1["Talent Score"], row1["Brand Power"],
+    row2["AP Rank"], row2["Wins"], row2["Talent Score"], row2["Brand Power"],
+
+    venue_tier,
+    team1_miles, team2_miles,
+
+    avg_wins, total_wins, avg_ap,
+    best_ap, worst_ap,
+
+    int(conf1 == "SEC"), int(conf1 == "Big 10"), int(conf1 == "Big 12"), int(conf1 == "ACC"),
+    
+    avg_distance, distance_min, distance_imbalance,
+    weekend_flag, matchup_power,
+
+    bowl_tier, bowl_owner, local_flag,
+
+    row1["AP Strength"] + row2["AP Strength"],
+
+    combined_fanbase_log,
+    (avg_distance / venues["Venue Capacity"].max()),
+    avg_ap / 25,
+
+    venue_row["Bowl Avg Viewers"],
+    bowl_avg_att
+
+]], columns=feature_cols)
 
 # -----------------------------------
 # PREDICTION
 # -----------------------------------
-if st.button("Predict Attendance"):
-    X_new = build_feature_row()
-    raw_pred = model.predict(X_new)[0]
+st.header("Prediction")
 
-    # Match your pipeline: blend + cap at capacity
-    blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
-    final_pred = min(blended_pred, venue_capacity)
+raw_pred = model.predict(feature_row)[0]
+blended = 0.7 * raw_pred + 0.3 * bowl_avg_att
+final_pred = min(blended, venue_capacity)
+pct_filled = final_pred / venue_capacity
 
-    st.subheader("Predicted Attendance")
-    st.metric("Projected Attendance", f"{final_pred:,.0f}")
+st.metric("Predicted Attendance", f"{final_pred:,.0f}")
+st.metric("% Filled", f"{pct_filled:.1%}")
+
+# -----------------------------------
+# KEY DRIVER SUMMARY
+# -----------------------------------
+st.subheader("Key Driver Summary")
+
+drivers = []
+
+if distance_imbalance > 400:
+    drivers.append("Large travel imbalance between teams influences demand.")
+elif distance_min < 150:
+    drivers.append("At least one nearby team strongly boosts attendance.")
+
+if combined_fanbase_log > teams["Fanbase Size"].median():
+    drivers.append("Large combined fanbase contributes positively.")
+
+if matchup_power == 2:
+    drivers.append("Power vs. Power matchup increases general interest.")
+elif matchup_power == 1:
+    drivers.append("One Power conference team lifts attendance potential.")
+
+if row1["Brand Power"] + row2["Brand Power"] > teams["Brand Power"].quantile(0.75) * 2:
+    drivers.append("High brand visibility increases draw potential.")
+
+for d in drivers:
+    st.write("• " + d)
+
+if len(drivers) == 0:
+    st.write("• Balanced matchup with typical bowl attendance drivers.")
