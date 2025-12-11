@@ -1601,7 +1601,7 @@ if st.button("Run Alternative Venue Scenario"):
         columns=feature_cols
     )
 
-       alt_raw = float(model.predict(alt_feature_row)[0])
+    alt_raw = float(model.predict(alt_feature_row)[0])
 
     alt_final = compute_final_attendance(
         raw_pred=alt_raw,
@@ -1612,10 +1612,10 @@ if st.button("Run Alternative Venue Scenario"):
 
     alt_pct_filled = alt_final / alt_capacity if alt_capacity > 0 else 0.0
 
-
     st.write(f"**Alternative Venue:** {alt_venue_choice}")
     st.write(f"Predicted Attendance: **{alt_final:,.0f}**")
     st.write(f"Capacity: {alt_capacity:,.0f} | Projected % Filled: {alt_pct_filled:.1%}")
+
 
 # =====================================================
 # TEAM SCORECARDS + MATCHUP SCORECARD
