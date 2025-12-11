@@ -2,55 +2,46 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from math import radians, sin, cos, sqrt, atan2
 
 # =====================================================
-# LOAD MODEL + FEATURES
+# LOAD MODEL + FEATURE COLUMNS
 # =====================================================
 model = joblib.load("attendance_model.pkl")
 feature_cols = joblib.load("feature_columns.pkl")
 
 # =====================================================
-# LOAD LOOKUP TABLES
+# LOAD 2025 BOWL GAMES DATA (PRE-ENGINEERED FEATURES)
 # =====================================================
-teams = pd.read_csv("2025 Bowl Games - UI Team Lookup.csv")
-venues = pd.read_csv("2025 Bowl Games - UI Venue Lookup.csv")
-bowl_tiers = pd.read_csv("2025 Bowl Games - Bowl Tiers.csv")
+# IMPORTANT: make sure this filename matches your repo.
+# It should be the same "future" file you used in Colab:
+# "2025 Bowl Games - 2025 Bowl Games (3).csv" or similar.
+BOWL_FILE = "2025 Bowl Games - 2025 Bowl Games.csv"
 
-teams.columns = teams.columns.str.strip()
-venues.columns = venues.columns.str.strip()
-bowl_tiers.columns = bowl_tiers.columns.str.strip()
+bowl_df = pd.read_csv(BOWL_FILE)
+bowl_df.columns = bowl_df.columns.str.strip()
 
-TEAM_COL = "Team Name"
-VENUE_COL = "Football Stadium"
-BOWL_NAME_COL = "Bowl Name"
+# Ensure numeric types for feature columns
+for col in feature_cols:
+    bowl_df[col] = pd.to_numeric(bowl_df[col], errors="coerce")
 
-team_list = sorted(teams[TEAM_COL].unique())
-venue_list = sorted(venues[VENUE_COL].unique())
-bowl_list = sorted(bowl_tiers[BOWL_NAME_COL].unique())
+# Clean capacity (in case there are commas)
+if "Venue Capacity" in bowl_df.columns:
+    bowl_df["Venue Capacity"] = (
+        bowl_df["Venue Capacity"]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+    )
+    bowl_df["Venue Capacity"] = pd.to_numeric(
+        bowl_df["Venue Capacity"], errors="coerce"
+    )
 
-# =====================================================
-# UTILS
-# =====================================================
-def haversine(lat1, lon1, lat2, lon2):
-    """Return great-circle distance in miles."""
-    R = 3958.8
-    dLat = radians(lat2 - lat1)
-    dLon = radians(lon2 - lon1)
-    lat1 = radians(lat1)
-    lat2 = radians(lat2)
-    a = sin(dLat/2)**2 + cos(lat1)*cos(lat2)*sin(dLon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return R * c
+# Create a nice label for the dropdown
+bowl_df["Game Label"] = (
+    bowl_df["Bowl Game Name"] + " – " +
+    bowl_df["Team 1"] + " vs " + bowl_df["Team 2"]
+)
 
-def safe_num(x):
-    """Convert to float and replace NaN/invalid with 0."""
-    try:
-        if pd.isna(x):
-            return 0.0
-        return float(x)
-    except Exception:
-        return 0.0
+game_labels = bowl_df["Game Label"].tolist()
 
 # =====================================================
 # STREAMLIT UI SETUP
@@ -58,241 +49,116 @@ def safe_num(x):
 st.set_page_config(page_title="Optimatch Bowl Attendance Predictor", layout="wide")
 
 st.title("🏈 Optimatch Bowl Attendance Predictor")
-st.write("Predict bowl attendance using CSMG’s Gradient Boosted model and Optimatch feature engine.")
+st.write(
+    "This tool uses CSMG’s Gradient Boosted model and the same feature "
+    "set used in your 2022–2025 bowl projections. For 2025 games, "
+    "predictions will match your master spreadsheet exactly."
+)
 
 # =====================================================
-# BOWL + VENUE SELECTION
+# GAME SELECTION
 # =====================================================
-st.header("Bowl & Venue Selection")
+st.header("Select 2025 Bowl Game")
 
-col_bowl, col_venue = st.columns(2)
+selected_label = st.selectbox("Bowl Matchup", sorted(game_labels))
 
-with col_bowl:
-    bowl_choice = st.selectbox("Bowl Name", bowl_list)
+# Get the selected row
+row = bowl_df[bowl_df["Game Label"] == selected_label].iloc[0]
 
-with col_venue:
-    venue_choice = st.selectbox("Football Stadium", venue_list)
+# Basic info
+bowl_name = row["Bowl Game Name"]
+team1 = row["Team 1"]
+team2 = row["Team 2"]
+venue = row["Venue"]
+city = row["City"]
+state = row["State"]
+year = int(row["Year"])
 
-bowl_row = bowl_tiers[bowl_tiers[BOWL_NAME_COL] == bowl_choice].iloc[0]
-venue_row = venues[venues[VENUE_COL] == venue_choice].iloc[0]
+venue_capacity = row["Venue Capacity"]
+bowl_avg_att = row["Bowl Avg Attendees"]
+bowl_avg_viewers = row.get("Bowl Avg Viewers", np.nan)
 
-venue_capacity = safe_num(venue_row["Football Capacity"])
-venue_lat = safe_num(venue_row["Lat"])
-venue_lon = safe_num(venue_row["Lon"])
-venue_city = venue_row["City"]
-venue_state = venue_row["State"]
-
-bowl_tier = safe_num(bowl_row["Tier"])
-bowl_owner = safe_num(bowl_row["Ownership"])
-bowl_avg_viewers = safe_num(bowl_row["Avg Viewers"])
-bowl_avg_att = safe_num(bowl_row["Avg Attendance"])
-
-st.subheader(f"{bowl_choice} at {venue_choice}")
-st.write(f"Location: {venue_city}, {venue_state}")
-st.write(f"Capacity: {venue_capacity:,.0f}")
+st.subheader(f"{bowl_name}: {team1} vs {team2}")
+st.write(f"Year: {year}")
+st.write(f"Venue: {venue} — {city}, {state}")
+st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 st.write(f"Historical Avg Attendance: {bowl_avg_att:,.0f}")
-
-weekend_flag = 1 if st.checkbox("Is this game on a weekend?") else 0
-
-# YEAR SELECTION
-st.markdown("### Prediction Year")
-year = st.selectbox("Year", [2022, 2023, 2024, 2025], index=3)
-
-# Figure out year-specific columns
-AP_RANK_COL       = f"{year} AP Ranking"
-AP_STRENGTH_COL   = f"{year} AP Strength Score"
-WINS_COL          = f"{year} Wins"
-TALENT_COL        = f"{year} Talent"
-BRAND_POWER_COL   = f"Team Brand Power {year}"
-
-# =====================================================
-# TEAM SELECTION
-# =====================================================
-st.header("Team Selection")
-
-col_t1, col_t2 = st.columns(2)
-
-with col_t1:
-    team1 = st.selectbox("Team 1", team_list)
-
-with col_t2:
-    team2 = st.selectbox("Team 2", team_list)
-
-row1 = teams[teams[TEAM_COL] == team1].iloc[0]
-row2 = teams[teams[TEAM_COL] == team2].iloc[0]
-
-# =====================================================
-# FEATURE ENGINEERING (YEAR-AWARE)
-# =====================================================
-# Year-specific stats
-t1_ap = safe_num(row1[AP_RANK_COL])
-t2_ap = safe_num(row2[AP_RANK_COL])
-
-t1_wins = safe_num(row1[WINS_COL])
-t2_wins = safe_num(row2[WINS_COL])
-
-t1_talent = safe_num(row1[TALENT_COL])
-t2_talent = safe_num(row2[TALENT_COL])
-
-t1_brand = safe_num(row1[BRAND_POWER_COL])
-t2_brand = safe_num(row2[BRAND_POWER_COL])
-
-t1_ap_strength = safe_num(row1[AP_STRENGTH_COL])
-t2_ap_strength = safe_num(row2[AP_STRENGTH_COL])
-
-# Distances
-t1_lat = safe_num(row1["Latitude"])
-t1_lon = safe_num(row1["Longitude"])
-t2_lat = safe_num(row2["Latitude"])
-t2_lon = safe_num(row2["Longitude"])
-
-team1_miles = safe_num(haversine(t1_lat, t1_lon, venue_lat, venue_lon))
-team2_miles = safe_num(haversine(t2_lat, t2_lon, venue_lat, venue_lon))
-
-avg_wins = safe_num((t1_wins + t2_wins) / 2.0)
-total_wins = safe_num(t1_wins + t2_wins)
-
-ap_vals = [x for x in [t1_ap, t2_ap] if x > 0]
-avg_ap = safe_num(np.mean(ap_vals) if len(ap_vals) else 0.0)
-best_ap = safe_num(min(ap_vals) if len(ap_vals) else 0.0)
-worst_ap = safe_num(max(ap_vals) if len(ap_vals) else 0.0)
-
-avg_distance = safe_num((team1_miles + team2_miles) / 2.0)
-distance_min = safe_num(min(team1_miles, team2_miles))
-distance_imbalance = safe_num(abs(team1_miles - team2_miles))
-
-local_flag = 1 if distance_min < 75 else 0
-
-# Conference flags
-conf1 = str(row1["Football FBS Conference"])
-conf2 = str(row2["Football FBS Conference"])
-
-SEC_present = int(conf1 == "SEC" or conf2 == "SEC")
-B10_present = int(conf1 == "Big 10" or conf2 == "Big 10")
-B12_present = int(conf1 == "Big 12" or conf2 == "Big 12")
-ACC_present = int(conf1 == "ACC" or conf2 == "ACC")
-
-level1 = str(row1["Conference Level"])
-level2 = str(row2["Conference Level"])
-
-if level1 == "P4" and level2 == "P4":
-    matchup_power = 2
-elif level1 == "P4" or level2 == "P4":
-    matchup_power = 1
-else:
-    matchup_power = 0
-
-combined_fanbase = safe_num(row1["Team Fanbase Size"]) + safe_num(row2["Team Fanbase Size"])
-combined_fanbase_log = safe_num(np.log1p(combined_fanbase))
-
-ap_strength_score = safe_num(t1_ap_strength + t2_ap_strength)
-
-minmax_distance = safe_num(avg_distance / 3000.0)
-ap_strength_norm = safe_num(ap_strength_score / 50.0)
 
 # =====================================================
 # TRAVEL MAP
 # =====================================================
 st.subheader("Travel Map")
 
-map_df = pd.DataFrame(
-    [
-        {"name": team1, "lat": t1_lat, "lon": t1_lon},
-        {"name": team2, "lat": t2_lat, "lon": t2_lon},
-        {"name": bowl_choice, "lat": venue_lat, "lon": venue_lon},
-    ]
-)
+map_points = []
 
-st.map(map_df[["lat", "lon"]])
+if pd.notna(row.get("Team 1 Lat")) and pd.notna(row.get("Team 1 Lon")):
+    map_points.append(
+        {"name": team1, "lat": row["Team 1 Lat"], "lon": row["Team 1 Lon"]}
+    )
 
-st.caption("Markers show Team 1, Team 2, and the bowl venue.")
+if pd.notna(row.get("Team 2 Lat")) and pd.notna(row.get("Team 2 Lon")):
+    map_points.append(
+        {"name": team2, "lat": row["Team 2 Lat"], "lon": row["Team 2 Lon"]}
+    )
 
-# =====================================================
-# BUILD FEATURE ROW
-# =====================================================
-row_data = {
-    "Team 1 AP Ranking": t1_ap,
-    "Team 1 Wins": t1_wins,
-    "Team 1 247 Talent Composite Score": t1_talent,
-    "Team 1 Brand Power": t1_brand,
+if pd.notna(row.get("Venue Lat")) and pd.notna(row.get("Venue Lon")):
+    map_points.append(
+        {"name": venue, "lat": row["Venue Lat"], "lon": row["Venue Lon"]}
+    )
 
-    "Team 2 AP Ranking": t2_ap,
-    "Team 2 Wins": t2_wins,
-    "Team 2 247 Talent Composite Score": t2_talent,
-    "Team 2 Brand Power": t2_brand,
-
-    "Venue Tier": bowl_tier,
-
-    "Team 1 Miles to Venue": team1_miles,
-    "Team 2 Miles to Venue": team2_miles,
-
-    "Avg Wins": avg_wins,
-    "Total Wins": total_wins,
-    "Avg AP Ranking": avg_ap,
-    "Best AP Ranking": best_ap,
-    "Worst AP Ranking": worst_ap,
-
-    "SEC Present": SEC_present,
-    "Big 10 Present": B10_present,
-    "Big 12 Present": B12_present,
-    "ACC Present": ACC_present,
-
-    "Avg Distace Traveled": avg_distance,
-    "Distance Minimum": distance_min,
-    "Distance Imbalance": distance_imbalance,
-
-    "Weekend Indicator (Weekend=1, Else 0)": weekend_flag,
-    "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)": matchup_power,
-
-    "Bowl Tier": bowl_tier,
-    "Bowl Ownership": bowl_owner,
-    "Local Team Indicator": local_flag,
-
-    "AP Strength Score": ap_strength_score,
-
-    "Combined Fanbase (Log transformed)": combined_fanbase_log,
-    "MinMax Scale Distcance": minmax_distance,
-    "AP Strength Normalized": ap_strength_norm,
-
-    "Bowl Avg Viewers": bowl_avg_viewers,
-    "Bowl Avg Attendees": bowl_avg_att,
-}
-
-feature_row = pd.DataFrame([[row_data.get(col, 0) for col in feature_cols]], columns=feature_cols)
+if map_points:
+    map_df = pd.DataFrame(map_points)
+    st.map(map_df[["lat", "lon"]])
+    st.caption("Markers show Team 1, Team 2, and the bowl venue.")
+else:
+    st.caption("No latitude/longitude data available for this game.")
 
 # =====================================================
-# PREDICTION WITH CUSTOM RULES
+# BUILD FEATURE ROW DIRECTLY FROM CSV
+# =====================================================
+X_row = row[feature_cols].to_frame().T
+
+# Coerce all to numeric (safety)
+X_row = X_row.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+
+# =====================================================
+# PREDICTION WITH YOUR CUSTOM RULES
 # =====================================================
 st.header("Prediction")
 
 if st.button("Run Prediction"):
 
-    # Raw model prediction
-    raw_pred = model.predict(feature_row)[0]
+    # Raw model prediction (same as BR column in your sheet)
+    raw_pred = float(model.predict(X_row)[0])
 
-    # 70/30 blend vs historical avg
+    # 70/30 blend vs historical avg (same as BS column)
     blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
 
-    # Hawaii & Bahamas bowls use raw
-    special_raw_list = ["Hawaii Bowl", "Bahamas Bowl"]
-    if bowl_choice in special_raw_list:
+    # 1. Hawaiʻi & Bahamas bowls use raw prediction only
+    bowl_lower = str(bowl_name).lower()
+    if ("hawai" in bowl_lower) or ("bahamas" in bowl_lower):
         final_pred = raw_pred
     else:
         final_pred = blended_pred
 
-    # Bowl-specific boosts
-    boosts = {
-        "Gator Bowl": 1.05,
-        "Pop-Tarts Bowl": 1.05,
-        "Texas Bowl": 1.05,
-        "Music City Bowl": 1.05,
-        "Alamo Bowl": 1.10,
-        "Duke’s Mayo Bowl": 1.03
-    }
-    if bowl_choice in boosts:
-        final_pred *= boosts[bowl_choice]
+    # 2. Bowl-specific boosts
+    boosts = [
+        ("gator", 1.05),
+        ("pop-tarts", 1.05),
+        ("pop tarts", 1.05),
+        ("texas bowl", 1.05),
+        ("music city", 1.05),
+        ("alamo", 1.10),
+        ("duke’s mayo", 1.03),
+        ("duke's mayo", 1.03),
+    ]
 
-    # Capacity cap + floor
+    for key, factor in boosts:
+        if key in bowl_lower:
+            final_pred *= factor
+            break
+
+    # 3. Capacity cap & zero floor
     final_pred = min(final_pred, venue_capacity)
     final_pred = max(final_pred, 0.0)
 
@@ -304,7 +170,7 @@ if st.button("Run Prediction"):
     st.subheader("📊 Attendance Comparison")
 
     diff = final_pred - bowl_avg_att
-    pct_diff = (diff / bowl_avg_att) if bowl_avg_att > 0 else 0.0
+    pct_diff = diff / bowl_avg_att if bowl_avg_att > 0 else 0.0
 
     colA, colB, colC = st.columns(3)
 
@@ -320,28 +186,51 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
+    # Optional: show the stored predictions from your sheet for sanity check
+    stored_raw = row.get("Raw Gradient Boosted Attendance", np.nan)
+    stored_blend = row.get("Gradient Boosted Predicted Attendance", np.nan)
+    stored_final = row.get("Final Attendance Prediction", np.nan)
+
+    with st.expander("Show stored model outputs from 2025 spreadsheet"):
+        st.write(f"Stored Raw GBR (BR): {stored_raw:,.5f}")
+        st.write(f"Stored Blended (BS): {stored_blend:,.5f}")
+        st.write(f"Stored Final (BT): {stored_final:,.5f}")
+
     # =====================================================
-    # KEY DRIVER SUMMARY
+    # KEY DRIVER SUMMARY (LIGHTWEIGHT)
     # =====================================================
     st.subheader("Key Driver Summary")
 
     drivers = []
 
-    if distance_min < 150:
+    # We can re-use some pre-engineered columns from the row:
+    distance_min = row.get("Distance Minimum", np.nan)
+    distance_imbalance = row.get("Distance Imbalance", np.nan)
+    avg_distance = row.get("Avg Distace Traveled", np.nan)
+    combined_fan_log = row.get("Combined Fanbase (Log transformed)", np.nan)
+    matchup_power = row.get("Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)", np.nan)
+    local_team = row.get("Local Team Indicator", 0)
+
+    try:
+        overall_median_log = bowl_df["Combined Fanbase (Log transformed)"].median()
+    except Exception:
+        overall_median_log = combined_fan_log
+
+    if pd.notna(distance_min) and distance_min < 150:
         drivers.append("At least one team is within strong drive range (<150 miles).")
 
-    if distance_imbalance > 400:
+    if pd.notna(distance_imbalance) and distance_imbalance > 400:
         drivers.append("There is a significant travel imbalance between the fanbases.")
 
-    if combined_fanbase_log > np.log1p(teams["Team Fanbase Size"].median()):
+    if pd.notna(combined_fan_log) and pd.notna(overall_median_log) and combined_fan_log > overall_median_log:
         drivers.append("Combined fanbase size is well above typical FBS levels.")
 
     if matchup_power == 2:
         drivers.append("Power vs. Power matchup elevates national interest.")
     elif matchup_power == 1:
-        drivers.append("Presence of at least one Power conference team lifts demand.")
+        drivers.append("Presence of at least one power-conference team lifts demand.")
 
-    if local_flag == 1:
+    if local_team == 1:
         drivers.append("A local or near-local team strongly supports attendance.")
 
     if not drivers:
@@ -349,6 +238,7 @@ if st.button("Run Prediction"):
 
     for d in drivers:
         st.write("• " + d)
+
 
 
 
