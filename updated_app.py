@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,8 +7,6 @@ from math import radians, sin, cos, sqrt, atan2
 import plotly.express as px
 import plotly.graph_objects as go
 
-
-st.set_page_config(page_title="Optimatch Bowl Attendance – Single Game", layout="wide")
 # =====================================================
 # CONSTANTS / CONFIG
 # =====================================================
@@ -34,6 +31,8 @@ BOWL_NAME_COL = "Bowl Name"
 # HELPER DATA
 # =====================================================
 
+
+st.set_page_config(page_title="Optimatch Bowl Attendance – Single Game", layout="wide")
 AIRPORTS = {
     "LAX - Los Angeles": (33.9416, -118.4085),
     "SFO - San Francisco": (37.6213, -122.3790),
@@ -725,40 +724,40 @@ if st.button("Run Prediction"):
     st.metric("Projected % Filled", f"{pct_filled:.1%}")
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
-        st.caption(
-            "The model blends team strength, fanbase size, travel distance, and bowl history "
-            "to estimate attendance, then compares it to the bowl’s recent average."
-        )
+    st.caption(
+        "The model blends team strength, fanbase size, travel distance, and bowl history "
+        "to estimate attendance, then compares it to the bowl’s recent average."
+    )
 
-        fill_fig = go.Figure(
-            go.Indicator(
-                mode="gauge+number",
-                value=pct_filled * 100,
-                number={"suffix": "%"},
-                gauge={
-                    "axis": {"range": [0, 100]},
-                    "bar": {"thickness": 0.3},
-                },
-            )
+    fill_fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=pct_filled * 100,
+            number={"suffix": "%"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"thickness": 0.3},
+            },
         )
-        fill_fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fill_fig, use_container_width=True)
+    )
+    fill_fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fill_fig, use_container_width=True)
 
-        summary_df = pd.DataFrame(
-            {
-                "Type": ["Predicted", "Historical Avg"],
-                "Attendance": [final_pred, bowl_avg_att],
-            }
-        )
-        summary_fig = px.bar(
-            summary_df,
-            x="Type",
-            y="Attendance",
-            text_auto=True,
-            title="Predicted vs Historical Average Attendance",
-        )
-        summary_fig.update_layout(height=280, margin=dict(l=10, r=10, t=40, b=0))
-        st.plotly_chart(summary_fig, use_container_width=True)
+    summary_df = pd.DataFrame(
+        {
+            "Type": ["Predicted", "Historical Avg"],
+            "Attendance": [final_pred, bowl_avg_att],
+        }
+    )
+    summary_fig = px.bar(
+        summary_df,
+        x="Type",
+        y="Attendance",
+        text_auto=True,
+        title="Predicted vs Historical Average Attendance",
+    )
+    summary_fig.update_layout(height=280, margin=dict(l=10, r=10, t=40, b=0))
+    st.plotly_chart(summary_fig, use_container_width=True)
 
 
     # =====================================================
@@ -982,7 +981,34 @@ if st.button("Run Prediction"):
         )
 
         hist_df = pd.DataFrame(rows)
-        # st.dataframe(hist_df, use_container_width=True)  # moved below after metrics
+        st.dataframe(hist_df, use_container_width=True)
+
+    st.caption(
+        "Use this view to see whether 2025 is expected to underperform, track, or beat "
+        "recent attendance and matchup profiles for this bowl."
+    )
+
+    if "Year" in hist_df.columns and "Attendance" in hist_df.columns:
+        att_copy = hist_df.copy()
+        try:
+            att_copy["Attendance_num"] = pd.to_numeric(
+                att_copy["Attendance"].str.replace(",", ""), errors="coerce"
+            )
+        except Exception:
+            att_copy["Attendance_num"] = pd.to_numeric(att_copy["Attendance"], errors="coerce")
+        att_copy = att_copy.dropna(subset=["Attendance_num"])
+        if not att_copy.empty:
+            att_fig = px.line(
+                att_copy.sort_values("Year"),
+                x="Year",
+                y="Attendance_num",
+                markers=True,
+                title="Attendance Trend for This Bowl (Including 2025 Projection)",
+            )
+            att_fig.update_traces(line=dict(width=3))
+            att_fig.update_layout(height=320, margin=dict(l=10, r=10, t=40, b=0))
+            st.plotly_chart(att_fig, use_container_width=True)
+
 
 
     # =====================================================
@@ -1022,26 +1048,26 @@ if st.button("Run Prediction"):
     else:
         st.error("This venue is challenging for most fans to reach.")
 
-        st.caption(
-            "Higher scores indicate easier access – closer airports, shorter average distance, "
-            "and a fan-friendly host city."
-        )
+    st.caption(
+        "Higher scores indicate easier access – closer airports, shorter average distance, "
+        "and a fan-friendly host city."
+    )
 
-        dist_df = pd.DataFrame(
-            {
-                "Team": [team1, team2],
-                "Miles to Venue": [team1_miles, team2_miles],
-            }
-        )
-        dist_fig = px.bar(
-            dist_df,
-            x="Team",
-            y="Miles to Venue",
-            text_auto=True,
-            title="Travel Distance to Venue by Team",
-        )
-        dist_fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=0))
-        st.plotly_chart(dist_fig, use_container_width=True)
+    dist_df = pd.DataFrame(
+        {
+            "Team": [team1, team2],
+            "Miles to Venue": [team1_miles, team2_miles],
+        }
+    )
+    dist_fig = px.bar(
+        dist_df,
+        x="Team",
+        y="Miles to Venue",
+        text_auto=True,
+        title="Travel Distance to Venue by Team",
+    )
+    dist_fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=0))
+    st.plotly_chart(dist_fig, use_container_width=True)
 
 
     # =====================================================
@@ -1080,23 +1106,23 @@ if st.button("Run Prediction"):
 
     st.write(f"**Overall Matchup Travel Expectation:** {avg_tvi:.1f} / 100")
 
-        st.caption(
-            "Scores closer to 100 mean a fanbase that is more likely to travel well to neutral-site games."
-        )
+    st.caption(
+        "Scores closer to 100 mean a fanbase that is more likely to travel well to neutral-site games."
+    )
 
-        tvi_df = pd.DataFrame(
-            {"Team": [team1, team2], "TVI": [t1_tvi, t2_tvi]}
-        )
-        tvi_fig = px.bar(
-            tvi_df,
-            x="Team",
-            y="TVI",
-            range_y=[0, 100],
-            text_auto=True,
-            title="Team Visitation Index by Team",
-        )
-        tvi_fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=0))
-        st.plotly_chart(tvi_fig, use_container_width=True)
+    tvi_df = pd.DataFrame(
+        {"Team": [team1, team2], "TVI": [t1_tvi, t2_tvi]}
+    )
+    tvi_fig = px.bar(
+        tvi_df,
+        x="Team",
+        y="TVI",
+        range_y=[0, 100],
+        text_auto=True,
+        title="Team Visitation Index by Team",
+    )
+    tvi_fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=0))
+    st.plotly_chart(tvi_fig, use_container_width=True)
 
 
     # =====================================================
@@ -1464,21 +1490,21 @@ if st.button("Run Prediction"):
 
     st.write(f"**Estimated Sellout Probability:** {sellout_prob*100:.1f}%")
 
-        st.caption(
-            "Sellout probability combines projected fill rate, bowl tier, matchup power, and model stability "
-            "to estimate the likelihood that the building is full."
-        )
+    st.caption(
+        "Sellout probability combines projected fill rate, bowl tier, matchup power, and model stability "
+        "to estimate the likelihood that the building is full."
+    )
 
-        so_fig = go.Figure(
-            go.Indicator(
-                mode="gauge+number",
-                value=sellout_prob * 100,
-                number={"suffix": "%"},
-                gauge={"axis": {"range": [0, 100]}},
-            )
+    so_fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=sellout_prob * 100,
+            number={"suffix": "%"},
+            gauge={"axis": {"range": [0, 100]}},
         )
-        so_fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(so_fig, use_container_width=True)
+    )
+    so_fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(so_fig, use_container_width=True)
 
 
     # =====================================================
@@ -1666,91 +1692,6 @@ if st.button("Run Prediction"):
 
     for d in drivers:
         st.write("• " + d)
-
-        # Update 2025 row in historical table with current metrics (if available)
-        if "hist_df" in locals() and not hist_df.empty and "Year" in hist_df.columns:
-            mask_2025 = hist_df["Year"] == 2025
-            if mask_2025.any():
-                hist_df.loc[mask_2025, "Accessibility"] = venue_access_score
-                hist_df.loc[mask_2025, "TVI (Avg)"] = f"{avg_tvi:.0f}"
-                hist_df.loc[mask_2025, "MIS"] = mis
-                hist_df.loc[mask_2025, "SVS"] = svs
-                hist_df.loc[mask_2025, "MFS"] = mfs
-                hist_df.loc[mask_2025, "Interest"] = f"{interest_index:.1f}"
-                hist_df.loc[mask_2025, "Sellout Prob"] = f"{sellout_prob:.1%}"
-
-                st.subheader("📚 Updated Historical Comparison (2022–2025)")
-                st.caption(
-                    "Compare 2025 projections vs. the last three editions of this bowl across attendance, travel, and matchup quality."
-                )
-                st.dataframe(hist_df, use_container_width=True)
-
-                # Attendance trend chart
-                if "Attendance" in hist_df.columns:
-                    att_copy = hist_df.copy()
-                    att_copy["Attendance_num"] = pd.to_numeric(
-                        att_copy["Attendance"].str.replace(",", ""), errors="coerce"
-                    )
-                    att_copy = att_copy.dropna(subset=["Attendance_num"])
-                    if not att_copy.empty:
-                        att_fig = px.line(
-                            att_copy.sort_values("Year"),
-                            x="Year",
-                            y="Attendance_num",
-                            markers=True,
-                            title="Attendance Trend for This Bowl (Including 2025 Projection)",
-                        )
-                        att_fig.update_traces(line=dict(width=3))
-                        att_fig.update_layout(
-                            height=320,
-                            margin=dict(l=10, r=10, t=40, b=0),
-                        )
-                        st.plotly_chart(att_fig, use_container_width=True)
-
-                # Radar-style comparison of key metrics: TVI, MIS, SVS, MFS
-                metrics_cols = ["TVI (Avg)", "MIS", "SVS", "MFS"]
-                if all(col in hist_df.columns for col in metrics_cols):
-                    hist_2022_24 = hist_df[hist_df["Year"].isin([2022, 2023, 2024])]
-                    if not hist_2022_24.empty:
-                        hist_mean = {}
-                        for col in metrics_cols:
-                            hist_mean[col] = pd.to_numeric(hist_2022_24[col], errors="coerce").mean()
-
-                        latest_2025_rows = hist_df[hist_df["Year"] == 2025]
-                        if not latest_2025_rows.empty:
-                            latest_2025 = latest_2025_rows.iloc[0]
-                            r_hist = [hist_mean[c] for c in metrics_cols]
-                            r_2025 = [
-                                pd.to_numeric(str(latest_2025[c]).replace("%", ""), errors="coerce")
-                                for c in metrics_cols
-                            ]
-
-                            hist_radar = go.Figure()
-                            hist_radar.add_trace(
-                                go.Scatterpolar(
-                                    r=r_hist,
-                                    theta=metrics_cols,
-                                    fill="toself",
-                                    name="Hist Avg (2022–24)",
-                                )
-                            )
-                            hist_radar.add_trace(
-                                go.Scatterpolar(
-                                    r=r_2025,
-                                    theta=metrics_cols,
-                                    fill="toself",
-                                    name="2025 Projection",
-                                )
-                            )
-                            hist_radar.update_layout(
-                                polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                                showlegend=True,
-                                height=350,
-                                margin=dict(l=10, r=10, t=40, b=0),
-                                title="Matchup Profile: 2025 vs Historical Average",
-                            )
-                            st.plotly_chart(hist_radar, use_container_width=True)
-
 
     # =====================================================
     # SAVE CONTEXT FOR SCORECARDS & HISTORY
