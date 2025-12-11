@@ -145,7 +145,69 @@ def compute_venue_accessibility_score(
 
     return max(0, min(100, score))
 
+ def compute_tvi(
+        miles,
+        fanbase_size,
+        brand_power,
+        wins,
+        ap_strength,
+        alumni_dispersion,
+        conference,
+    ):
+        score = 50
 
+        if miles <= 150:
+            score += 20
+        elif miles <= 350:
+            score += 12
+        elif miles <= 700:
+            score += 4
+        else:
+            score -= 10
+
+        if fanbase_size > 600000:
+            score += 10
+        elif fanbase_size > 300000:
+            score += 6
+        elif fanbase_size > 100000:
+            score += 3
+
+        if brand_power > 75:
+            score += 8
+        elif brand_power > 50:
+            score += 4
+
+        if wins >= 9:
+            score += 6
+        elif wins >= 7:
+            score += 3
+
+        if ap_strength > 0 and ap_strength <= 20:
+            score += 4
+        elif ap_strength <= 35:
+            score += 2
+
+        ad = str(alumni_dispersion).lower()
+        if "national" in ad:
+            score += 5
+        elif "regional" in ad:
+            score += 2
+        elif "local" in ad:
+            score -= 2
+
+        conf = str(conference).lower()
+        if "sec" in conf:
+            score += 8
+        elif "big ten" in conf or "big 10" in conf:
+            score += 6
+        elif "big 12" in conf:
+            score += 4
+        elif "acc" in conf:
+            score += 2
+
+        return max(0, min(100, score))
+
+    
 def safe_num(x, default=0.0):
     try:
         if pd.isna(x):
@@ -691,68 +753,7 @@ if st.button("Run Prediction"):
 
     st.subheader("👥 Team Visitation Index")
 
-    def compute_tvi(
-        miles,
-        fanbase_size,
-        brand_power,
-        wins,
-        ap_strength,
-        alumni_dispersion,
-        conference,
-    ):
-        score = 50
-
-        if miles <= 150:
-            score += 20
-        elif miles <= 350:
-            score += 12
-        elif miles <= 700:
-            score += 4
-        else:
-            score -= 10
-
-        if fanbase_size > 600000:
-            score += 10
-        elif fanbase_size > 300000:
-            score += 6
-        elif fanbase_size > 100000:
-            score += 3
-
-        if brand_power > 75:
-            score += 8
-        elif brand_power > 50:
-            score += 4
-
-        if wins >= 9:
-            score += 6
-        elif wins >= 7:
-            score += 3
-
-        if ap_strength > 0 and ap_strength <= 20:
-            score += 4
-        elif ap_strength <= 35:
-            score += 2
-
-        ad = str(alumni_dispersion).lower()
-        if "national" in ad:
-            score += 5
-        elif "regional" in ad:
-            score += 2
-        elif "local" in ad:
-            score -= 2
-
-        conf = str(conference).lower()
-        if "sec" in conf:
-            score += 8
-        elif "big ten" in conf or "big 10" in conf:
-            score += 6
-        elif "big 12" in conf:
-            score += 4
-        elif "acc" in conf:
-            score += 2
-
-        return max(0, min(100, score))
-
+   
     t1_tvi = compute_tvi(
         miles=team1_miles,
         fanbase_size=t1_fanbase,
