@@ -106,78 +106,92 @@ row1 = teams[teams[TEAM_COL] == team1].iloc[0]
 row2 = teams[teams[TEAM_COL] == team2].iloc[0]
 
 # -----------------------------------
-# FEATURE ENGINEERING
+# FEATURE ENGINEERING (SAFE VERSION)
 # -----------------------------------
 
-# 1. Current-season Wins, AP, Talent, Brand (2025)
-t1_ap = row1["2025 AP Ranking"]
-t2_ap = row2["2025 AP Ranking"]
+def safe_num(x):
+    """Convert to float and replace NAN with 0."""
+    try:
+        if pd.isna(x):
+            return 0
+        return float(x)
+    except:
+        return 0
 
-t1_wins = row1["2025 Wins"]
-t2_wins = row2["2025 Wins"]
+# Safe numeric values
+t1_ap = safe_num(row1["2025 AP Ranking"])
+t2_ap = safe_num(row2["2025 AP Ranking"])
 
-t1_talent = row1["2025 Talent"]
-t2_talent = row2["2025 Talent"]
+t1_wins = safe_num(row1["2025 Wins"])
+t2_wins = safe_num(row2["2025 Wins"])
 
-t1_brand = row1["Team Brand Power 2025"]
-t2_brand = row2["Team Brand Power 2025"]
+t1_talent = safe_num(row1["2025 Talent"])
+t2_talent = safe_num(row2["2025 Talent"])
 
-t1_ap_strength = row1["2025 AP Strength Score"]
-t2_ap_strength = row2["2025 AP Strength Score"]
+t1_brand = safe_num(row1["Team Brand Power 2025"])
+t2_brand = safe_num(row2["Team Brand Power 2025"])
 
-# 2. Distances
-t1_lat = row1["Latitude"]
-t1_lon = row1["Longitude"]
-t2_lat = row2["Latitude"]
-t2_lon = row2["Longitude"]
+t1_ap_strength = safe_num(row1["2025 AP Strength Score"])
+t2_ap_strength = safe_num(row2["2025 AP Strength Score"])
 
-team1_miles = haversine(t1_lat, t1_lon, venue_lat, venue_lon)
-team2_miles = haversine(t2_lat, t2_lon, venue_lat, venue_lon)
+# Distances (safe)
+t1_lat = safe_num(row1["Latitude"])
+t1_lon = safe_num(row1["Longitude"])
+t2_lat = safe_num(row2["Latitude"])
+t2_lon = safe_num(row2["Longitude"])
 
-avg_wins = (t1_wins + t2_wins) / 2
-total_wins = t1_wins + t2_wins
+team1_miles = safe_num(haversine(t1_lat, t1_lon, venue_lat, venue_lon))
+team2_miles = safe_num(haversine(t2_lat, t2_lon, venue_lat, venue_lon))
 
+avg_wins = safe_num((t1_wins + t2_wins) / 2)
+total_wins = safe_num(t1_wins + t2_wins)
+
+# AP Rankings
 ap_vals = [x for x in [t1_ap, t2_ap] if x > 0]
-avg_ap = np.mean(ap_vals) if ap_vals else 0
-best_ap = min(ap_vals) if ap_vals else 0
-worst_ap = max(ap_vals) if ap_vals else 0
+avg_ap = safe_num(np.mean(ap_vals) if len(ap_vals) else 0)
+best_ap = safe_num(min(ap_vals) if len(ap_vals) else 0)
+worst_ap = safe_num(max(ap_vals) if len(ap_vals) else 0)
 
-avg_distance = (team1_miles + team2_miles) / 2
-distance_min = min(team1_miles, team2_miles)
-distance_imbalance = abs(team1_miles - team2_miles)
+# Distances
+avg_distance = safe_num((team1_miles + team2_miles) / 2)
+distance_min = safe_num(min(team1_miles, team2_miles))
+distance_imbalance = safe_num(abs(team1_miles - team2_miles))
 
 local_flag = 1 if distance_min < 75 else 0
 
-# 3. Conference flags & Matchup Power Score (P4 vs G5)
-conf1 = row1["Football FBS Conference"]
-conf2 = row2["Football FBS Conference"]
-level1 = row1["Conference Level"]
-level2 = row2["Conference Level"]
+# Conference flags
+conf1 = str(row1["Football FBS Conference"])
+conf2 = str(row2["Football FBS Conference"])
 
-SEC_present = int((conf1 == "SEC") or (conf2 == "SEC"))
-B10_present = int((conf1 == "Big 10") or (conf2 == "Big 10"))
-B12_present = int((conf1 == "Big 12") or (conf2 == "Big 12"))
-ACC_present = int((conf1 == "ACC") or (conf2 == "ACC"))
+SEC_present = int("SEC" in [conf1, conf2])
+B10_present = int("Big 10" in [conf1, conf2])
+B12_present = int("Big 12" in [conf1, conf2])
+ACC_present = int("ACC" in [conf1, conf2])
 
-# Matchup Power Score based on Conference Level (assume "P4" vs "G5")
+level1 = str(row1["Conference Level"])
+level2 = str(row2["Conference Level"])
+
+# Matchup power score
 if level1 == "P4" and level2 == "P4":
     matchup_power = 2
-elif (level1 == "P4" and level2 != "P4") or (level2 == "P4" and level1 != "P4"):
+elif level1 == "P4" or level2 == "P4":
     matchup_power = 1
 else:
     matchup_power = 0
 
-# 4. AP Strength / Fanbase / Scaling
-ap_strength_score = t1_ap_strength + t2_ap_strength
+# Bowl tier fields (safe)
+bowl_tier = safe_num(bowl_row["Tier"])
+bowl_owner = safe_num(bowl_row["Ownership"])
+bowl_avg_viewers = safe_num(bowl_row["Avg Viewers"])
+bowl_avg_att = safe_num(bowl_row["Avg Attendance"])
 
-combined_fanbase = row1["Team Fanbase Size"] + row2["Team Fanbase Size"]
-combined_fanbase_log = np.log1p(combined_fanbase)
+combined_fanbase = safe_num(row1["Team Fanbase Size"]) + safe_num(row2["Team Fanbase Size"])
+combined_fanbase_log = safe_num(np.log1p(combined_fanbase))
 
-# Simple distance scaling (0–1-ish)
-minmax_distance = avg_distance / 3000.0
+ap_strength_score = safe_num(t1_ap_strength + t2_ap_strength)
 
-# Simple AP strength normalization (you can refine later)
-ap_strength_norm = ap_strength_score / 50.0
+minmax_distance = safe_num(avg_distance / 3000)
+ap_strength_norm = safe_num(ap_strength_score / 50)
 
 # -----------------------------------
 # BUILD FEATURE ROW IN CORRECT ORDER
