@@ -23,7 +23,7 @@ venues.columns = venues.columns.str.strip()
 bowl_tiers.columns = bowl_tiers.columns.str.strip()
 
 TEAM_COL = "Team Name"
-BOWL_COL = "Bowl Name"
+BOWL_COL = "Football Stadium"
 
 team_list = sorted(teams[TEAM_COL].unique())
 bowl_list = sorted(venues[BOWL_COL].unique())
