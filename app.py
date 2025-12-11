@@ -506,13 +506,6 @@ if local_flag == 1:
 if venue_tier >= 2:
     drivers.append("This game is hosted in a high-tier venue, enhancing the bowl experience and spectator draw.")
 
-# -------- DEFAULT IF EMPTY --------
-if not drivers:
-    drivers.append("This matchup aligns with typical bowl attendance patterns in our model.")
-
-for d in drivers:
-    st.write("• " + d)
-
 # -------- ALUMNI DISPERSION IMPACT --------
 t1_alumni = str(row1.get("Alumni Dispersion", "")).lower()
 t2_alumni = str(row2.get("Alumni Dispersion", "")).lower()
@@ -548,4 +541,12 @@ alumni_msgs = [
 for m in alumni_msgs:
     if m:
         drivers.append(m)
+# -------- DEFAULT IF EMPTY --------
+if not drivers:
+    drivers.append("This matchup aligns with typical bowl attendance patterns in our model.")
+
+for d in drivers:
+    st.write("• " + d)
+
+
 
