@@ -9,13 +9,13 @@ from math import radians, sin, cos, sqrt, atan2
 # CONSTANTS / CONFIG
 # =====================================================
 
-PRED_YEAR = 2025  # using 2025 stats for predictions
+PRED_YEAR = 2025  # prediction season
 
 TEAM_FILE = "2025 Bowl Games - UI Team Lookup.csv"
 VENUE_FILE = "2025 Bowl Games - UI Venue Lookup.csv"
 BOWL_TIERS_FILE = "2025 Bowl Games - Bowl Tiers.csv"
 
-# HISTORICAL CALIBRATION: 2022–2024 ACTUAL GAMES
+# Historical calibration: 2022–2024 bowl games
 CALIB_FILE = "2025 Bowl Games - 2022-2024 Bowl Games (7).csv"
 
 MODEL_FILE = "attendance_model.pkl"
@@ -26,7 +26,7 @@ VENUE_COL = "Football Stadium"
 BOWL_NAME_COL = "Bowl Name"
 
 # =====================================================
-# HELPERS
+# HELPER DATA
 # =====================================================
 
 AIRPORTS = {
@@ -52,9 +52,13 @@ AIRPORTS = {
     "ELP - El Paso": (31.7982, -106.3960),
     "HNL - Honolulu": (21.3245, -157.9251),
     "BOI - Boise": (43.5644, -116.2228),
-    "SLC - Salt Lake City": (40.7899, -111.9791)
+    "SLC - Salt Lake City": (40.7899, -111.9791),
 }
 
+
+# =====================================================
+# HELPER FUNCTIONS
+# =====================================================
 
 def haversine(lat1, lon1, lat2, lon2):
     """Great-circle distance in miles."""
@@ -87,15 +91,16 @@ def compute_venue_accessibility_score(
     team2_miles,
     venue_city,
     venue_state,
-    airport_distance
+    airport_distance,
 ):
+    """Simple 0–100 accessibility score combining airport + drive + city + capacity."""
     score = 50  # baseline
 
-    # ---- 1. Airport Access (Major Hub) ----
+    # 1. Airport city size
     major_airports = [
         "los angeles", "phoenix", "las vegas", "atlanta", "chicago",
         "dallas", "houston", "orlando", "miami", "charlotte", "seattle",
-        "denver", "new york", "boston", "philadelphia"
+        "denver", "new york", "boston", "philadelphia",
     ]
     city_key = f"{venue_city}, {venue_state}".lower()
 
@@ -104,7 +109,7 @@ def compute_venue_accessibility_score(
     else:
         score += 5
 
-    # ---- 1B. Airport Distance to Venue ----
+    # 2. Distance from venue to nearest airport
     if airport_distance < 10:
         score += 15
     elif airport_distance < 20:
@@ -116,7 +121,7 @@ def compute_venue_accessibility_score(
     else:
         score += 1
 
-    # ---- 2. Driving Access ----
+    # 3. Driving distances for the two fanbases
     avg_miles = (team1_miles + team2_miles) / 2
     if avg_miles < 250:
         score += 20
@@ -127,17 +132,17 @@ def compute_venue_accessibility_score(
     else:
         score += 2
 
-    # ---- 3. Urban Access Level ----
+    # 4. Urban access proxy
     high_access_cities = [
         "los angeles", "tampa", "orlando", "phoenix", "new york",
-        "boston", "denver", "atlanta", "san antonio", "charlotte"
+        "boston", "denver", "atlanta", "san antonio", "charlotte",
     ]
     if venue_city.lower() in high_access_cities:
         score += 15
     else:
         score += 5
 
-    # ---- 4. Stadium Capacity Fit ----
+    # 5. Capacity fit
     if venue_capacity >= 70000:
         score -= 5
     elif venue_capacity <= 35000:
@@ -145,69 +150,7 @@ def compute_venue_accessibility_score(
 
     return max(0, min(100, score))
 
- def compute_tvi(
-        miles,
-        fanbase_size,
-        brand_power,
-        wins,
-        ap_strength,
-        alumni_dispersion,
-        conference,
-    ):
-        score = 50
 
-        if miles <= 150:
-            score += 20
-        elif miles <= 350:
-            score += 12
-        elif miles <= 700:
-            score += 4
-        else:
-            score -= 10
-
-        if fanbase_size > 600000:
-            score += 10
-        elif fanbase_size > 300000:
-            score += 6
-        elif fanbase_size > 100000:
-            score += 3
-
-        if brand_power > 75:
-            score += 8
-        elif brand_power > 50:
-            score += 4
-
-        if wins >= 9:
-            score += 6
-        elif wins >= 7:
-            score += 3
-
-        if ap_strength > 0 and ap_strength <= 20:
-            score += 4
-        elif ap_strength <= 35:
-            score += 2
-
-        ad = str(alumni_dispersion).lower()
-        if "national" in ad:
-            score += 5
-        elif "regional" in ad:
-            score += 2
-        elif "local" in ad:
-            score -= 2
-
-        conf = str(conference).lower()
-        if "sec" in conf:
-            score += 8
-        elif "big ten" in conf or "big 10" in conf:
-            score += 6
-        elif "big 12" in conf:
-            score += 4
-        elif "acc" in conf:
-            score += 2
-
-        return max(0, min(100, score))
-
-    
 def safe_num(x, default=0.0):
     try:
         if pd.isna(x):
@@ -219,15 +162,14 @@ def safe_num(x, default=0.0):
 
 def compute_final_attendance(raw_pred, bowl_name, bowl_avg_att, venue_capacity):
     """
-    Reproduce the Excel / Google Sheets logic used for the 2025
-    'Final Attendance Prediction' column.
+    Reproduce your Google Sheets 'Final Attendance Prediction' logic for 2025.
     """
     bowl_lower = str(bowl_name).lower()
 
     # 1) 70/30 blended prediction
     blended_pred = 0.7 * raw_pred + 0.3 * bowl_avg_att
 
-    # 2) Hawaii & Bahamas use raw model prediction
+    # 2) Hawaii & Bahamas: use raw model only
     if ("hawai" in bowl_lower) or ("bahamas" in bowl_lower):
         base = raw_pred
     else:
@@ -261,30 +203,120 @@ def compute_final_attendance(raw_pred, bowl_name, bowl_avg_att, venue_capacity):
 
 
 def estimate_travel_hours(miles: float) -> float:
-    """Very rough travel time estimate in hours."""
+    """Rough travel time in hours (drive or fly)."""
     if miles <= 0:
         return 0.0
     if miles < 400:
-        # assume driving
+        # mostly driving
         return miles / 55.0 + 0.5
     elif miles < 900:
         # longer drive / short flight
         return miles / 60.0 + 1.0
     else:
-        # assume commercial flight + airport overhead
+        # assume flight plus airport overhead
         return 3.0 + 2.5
 
 
+def estimate_driving_hours(miles):
+    if miles <= 0:
+        return None
+    if miles < 300:
+        return miles / 55
+    elif miles < 800:
+        return miles / 62
+    else:
+        return (miles / 65) + 10  # overnight stop
+
+
+def estimate_flying_hours(miles):
+    if miles <= 0:
+        return None
+    return (miles / 250) + 1.7  # gate-to-gate + airport time
+
+
+def fmt_hours(hours):
+    return f"{hours:.1f} hrs" if hours is not None else "N/A"
+
+
+def compute_tvi(
+    miles,
+    fanbase_size,
+    brand_power,
+    wins,
+    ap_strength,
+    alumni_dispersion,
+    conference,
+):
+    """
+    Team Visitation Index: 0–100 heuristic score.
+    """
+    score = 50
+
+    # Distance
+    if miles <= 150:
+        score += 20
+    elif miles <= 350:
+        score += 12
+    elif miles <= 700:
+        score += 4
+    else:
+        score -= 10
+
+    # Fanbase size
+    if fanbase_size > 600000:
+        score += 10
+    elif fanbase_size > 300000:
+        score += 6
+    elif fanbase_size > 100000:
+        score += 3
+
+    # Brand power
+    if brand_power > 75:
+        score += 8
+    elif brand_power > 50:
+        score += 4
+
+    # Wins
+    if wins >= 9:
+        score += 6
+    elif wins >= 7:
+        score += 3
+
+    # AP strength (lower is better ranking)
+    if ap_strength > 0 and ap_strength <= 20:
+        score += 4
+    elif ap_strength <= 35:
+        score += 2
+
+    # Alumni dispersion
+    ad = str(alumni_dispersion).lower()
+    if "local" in ad:
+        score += 5
+    elif "regional" in ad:
+        score += 2
+    elif "national" in ad:
+        score += 1
+
+    # Conference
+    conf = str(conference).lower()
+    if "sec" in conf:
+        score += 8
+    elif "big ten" in conf or "big 10" in conf:
+        score += 6
+    elif "big 12" in conf:
+        score += 4
+    elif "acc" in conf:
+        score += 2
+
+    return max(0, min(100, score))
+
+
 # =====================================================
-# LOAD MODEL + FEATURE LIST
+# LOAD MODEL + DATA
 # =====================================================
 
 model = joblib.load(MODEL_FILE)
 feature_cols = joblib.load(FEATURE_COLS_FILE)
-
-# =====================================================
-# LOAD LOOKUP TABLES
-# =====================================================
 
 teams = pd.read_csv(TEAM_FILE)
 venues = pd.read_csv(VENUE_FILE)
@@ -295,10 +327,9 @@ for df in (teams, venues, bowl_tiers, calib):
     df.columns = df.columns.str.strip()
 
 # =====================================================
-# DERIVE SCALERS / THRESHOLDS FROM  DATA
+# TRAIN-TIME SCALERS (DISTANCE + AP STRENGTH)
 # =====================================================
 
-# Distance MinMax scaling
 dist_raw = pd.to_numeric(calib["Avg Distace Traveled"], errors="coerce")
 dist_scaled = pd.to_numeric(calib["MinMax Scale Distcance"], errors="coerce")
 
@@ -311,7 +342,6 @@ if np.isnan(dist_min_train):
 if np.isnan(dist_max_train):
     dist_max_train = dist_raw.max()
 
-# AP Strength normalization
 ap_raw = pd.to_numeric(calib["AP Strength Score"], errors="coerce")
 ap_scaled = pd.to_numeric(calib["AP Strength Normalized"], errors="coerce")
 
@@ -330,7 +360,8 @@ if "Local Team Indicator" in calib.columns:
     try:
         local_threshold = float(
             local_rows.loc[
-                local_rows["Local Team Indicator"] == 1, "Distance Minimum"
+                local_rows["Local Team Indicator"] == 1,
+                "Distance Minimum",
             ].max()
         )
         if np.isnan(local_threshold):
@@ -340,7 +371,7 @@ if "Local Team Indicator" in calib.columns:
 else:
     local_threshold = 75.0
 
-# median log fanbase from calibration
+# Median log fanbase from calibration
 try:
     calib_combined_log_median = pd.to_numeric(
         calib["Combined Fanbase (Log transformed)"], errors="coerce"
@@ -349,12 +380,12 @@ except Exception:
     calib_combined_log_median = None
 
 # =====================================================
-# STREAMLIT UI SETUP
+# STREAMLIT UI
 # =====================================================
 
 st.set_page_config(page_title="Optimatch Bowl Attendance Predictor", layout="wide")
-
 st.title("🏈 Optimatch Bowl Attendance Predictor")
+
 st.write(
     "Predict bowl attendance using CSMG’s Gradient Boosted model and Optimatch feature engine. "
     "This UI recomputes model features from team, bowl, and venue lookups, calibrated on 2022–2024 bowl games."
@@ -423,7 +454,7 @@ row1 = teams[teams[TEAM_COL] == team1].iloc[0]
 row2 = teams[teams[TEAM_COL] == team2].iloc[0]
 
 # =====================================================
-# FEATURE ENGINEERING (MIRRORING MODEL TRAINING)
+# FEATURE ENGINEERING FOR MODEL
 # =====================================================
 
 year_str = str(PRED_YEAR)
@@ -519,31 +550,10 @@ else:
     ap_strength_norm = 0.0
 
 # =====================================================
-# TRAVEL MAP + ROUTE LINES
+# TRAVEL ROUTE MAP
 # =====================================================
 
 st.subheader("🗺️ Travel Routes & Estimated Travel Time")
-
-def estimate_driving_hours(miles):
-    if miles <= 0:
-        return None
-    if miles < 300:
-        return miles / 55
-    elif miles < 800:
-        return miles / 62
-    else:
-        return (miles / 65) + 10  # adds overnight stop
-
-
-def estimate_flying_hours(miles):
-    if miles <= 0:
-        return None
-    return (miles / 250) + 1.7  # gate-to-gate + airport overhead
-
-
-def fmt(hours):
-    return f"{hours:.1f} hrs" if hours is not None else "N/A"
-
 
 t1_drive_hours = estimate_driving_hours(team1_miles)
 t2_drive_hours = estimate_driving_hours(team2_miles)
@@ -553,13 +563,13 @@ t2_flight_hours = estimate_flying_hours(team2_miles)
 colA, colB = st.columns(2)
 with colA:
     st.markdown(f"**{team1} → {venue_choice}**")
-    st.write(f"Driving Time: {fmt(t1_drive_hours)}")
-    st.write(f"Flying Time: {fmt(t1_flight_hours)}")
+    st.write(f"Driving Time: {fmt_hours(t1_drive_hours)}")
+    st.write(f"Flying Time: {fmt_hours(t1_flight_hours)}")
 
 with colB:
     st.markdown(f"**{team2} → {venue_choice}**")
-    st.write(f"Driving Time: {fmt(t2_drive_hours)}")
-    st.write(f"Flying Time: {fmt(t2_flight_hours)}")
+    st.write(f"Driving Time: {fmt_hours(t2_drive_hours)}")
+    st.write(f"Flying Time: {fmt_hours(t2_flight_hours)}")
 
 line_data = [
     {
@@ -627,7 +637,7 @@ st.caption(
 )
 
 # =====================================================
-# BUILD FEATURE ROW
+# BUILD FEATURE ROW FOR MODEL
 # =====================================================
 
 row_data = {
@@ -673,7 +683,7 @@ feature_row = pd.DataFrame(
 )
 
 # =====================================================
-# PREDICTION + ALL SCORECARD PANELS
+# PREDICTION + ALL SCORECARDS
 # =====================================================
 
 st.header("Prediction")
@@ -711,7 +721,230 @@ if st.button("Run Prediction"):
     st.write(f"Stadium Capacity: {venue_capacity:,.0f}")
 
     # =====================================================
-    # 📍 VENUE ACCESSIBILITY SCORE
+    # 📚 HISTORICAL COMPARISON: SAME BOWL (2022–2024)
+    # =====================================================
+
+    st.subheader("📚 Historical Comparison (Same Bowl: 2022–2024)")
+
+    hist_bowl = calib[calib["Bowl Game Name"] == bowl_choice].copy()
+    if "Year" in hist_bowl.columns:
+        hist_bowl = hist_bowl[hist_bowl["Year"].isin([2022, 2023, 2024])]
+
+    if len(hist_bowl) == 0:
+        st.write("No valid historical bowl data found for this matchup.")
+    else:
+        rows = []
+
+        for _, r in hist_bowl.iterrows():
+            year = int(safe_num(r.get("Year", 0)))
+            att_h = safe_num(r.get("Attendance"))
+            cap_h = safe_num(r.get("Venue Capacity"))
+            pct_fill_h = att_h / cap_h if cap_h > 0 else 0
+
+            avg_dist_h = safe_num(r.get("Avg Distace Traveled"))
+            min_dist_h = safe_num(r.get("Distance Minimum"))
+            dist_imb_h = safe_num(r.get("Distance Imbalance"))
+            fan_log_h = safe_num(r.get("Combined Fanbase (Log transformed)"))
+            ap_str_h = safe_num(r.get("AP Strength Score"))
+            power_h = safe_num(
+                r.get(
+                    "Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)",
+                )
+            )
+
+            # venue + team coords (if present)
+            v_lat_h = safe_num(r.get("Venue Lat", venue_lat))
+            v_lon_h = safe_num(r.get("Venue Lon", venue_lon))
+            t1_lat_h = safe_num(r.get("Team 1 Lat", t1_lat))
+            t1_lon_h = safe_num(r.get("Team 1 Lon", t1_lon))
+            t2_lat_h = safe_num(r.get("Team 2 Lat", t2_lat))
+            t2_lon_h = safe_num(r.get("Team 2 Lon", t2_lon))
+
+            if all(np.isfinite([t1_lat_h, t1_lon_h, v_lat_h, v_lon_h])):
+                t1_m_h = haversine(t1_lat_h, t1_lon_h, v_lat_h, v_lon_h)
+            else:
+                t1_m_h = avg_dist_h
+
+            if all(np.isfinite([t2_lat_h, t2_lon_h, v_lat_h, v_lon_h])):
+                t2_m_h = haversine(t2_lat_h, t2_lon_h, v_lat_h, v_lon_h)
+            else:
+                t2_m_h = avg_dist_h
+
+            nearest_hist_airport, hist_airport_dist = find_nearest_airport(
+                v_lat_h, v_lon_h
+            )
+
+            hist_access = compute_venue_accessibility_score(
+                cap_h,
+                t1_m_h,
+                t2_m_h,
+                r.get("Venue City", venue_city),
+                r.get("Venue State", venue_state),
+                hist_airport_dist,
+            )
+
+            conf1_h = r.get("Team 1 Conference", "")
+            conf2_h = r.get("Team 2 Conference", "")
+            alumni1_h = r.get("Team 1 Alumni Dispersion", "")
+            alumni2_h = r.get("Team 2 Alumni Dispersion", "")
+
+            t1_fan_h = safe_num(r.get("Team 1 Fanbase"))
+            t2_fan_h = safe_num(r.get("Team 2 Fanbase"))
+            t1_brand_h = safe_num(r.get("Team 1 Brand Power"))
+            t2_brand_h = safe_num(r.get("Team 2 Brand Power"))
+            t1_wins_h = safe_num(r.get("Team 1 Wins"))
+            t2_wins_h = safe_num(r.get("Team 2 Wins"))
+            t1_ap_str_h = safe_num(r.get("Team 1 AP Strength"))
+            t2_ap_str_h = safe_num(r.get("Team 2 AP Strength"))
+
+            t1_tvi_h = compute_tvi(
+                t1_m_h,
+                t1_fan_h,
+                t1_brand_h,
+                t1_wins_h,
+                t1_ap_str_h,
+                alumni1_h,
+                conf1_h,
+            )
+            t2_tvi_h = compute_tvi(
+                t2_m_h,
+                t2_fan_h,
+                t2_brand_h,
+                t2_wins_h,
+                t2_ap_str_h,
+                alumni2_h,
+                conf2_h,
+            )
+            avg_tvi_h = (t1_tvi_h + t2_tvi_h) / 2
+
+            # Market Impact heuristic
+            hist_travel_pct = min(
+                0.85,
+                max(0.05, (avg_dist_h / 1000.0) * (avg_tvi_h / 100.0)),
+            )
+            hist_mis = 50
+            if power_h == 2:
+                hist_mis += 10
+            elif power_h == 1:
+                hist_mis += 4
+            if fan_log_h > 6.0:
+                hist_mis += 6
+            if att_h > 45000:
+                hist_mis += 8
+            elif att_h > 30000:
+                hist_mis += 4
+            hist_mis = max(0, min(100, hist_mis))
+
+            # Sponsor Visibility
+            hist_svs = 50
+            if fan_log_h > 6.0:
+                hist_svs += 10
+            if power_h == 2:
+                hist_svs += 10
+            if att_h > 45000:
+                hist_svs += 8
+            hist_svs = max(0, min(100, hist_svs))
+
+            # Matchup Fit
+            hist_mfs = 50
+            if min_dist_h < 200:
+                hist_mfs += 10
+            if power_h == 2:
+                hist_mfs += 12
+            hist_mfs = max(0, min(100, hist_mfs))
+
+            # Interest Index
+            hist_interest = 5
+            if power_h >= 1:
+                hist_interest += 1
+            if fan_log_h > 6.0:
+                hist_interest += 1
+            hist_interest = max(1, min(10, hist_interest))
+
+            # Sellout probability
+            hist_sellout = pct_fill_h
+            if power_h == 2:
+                hist_sellout += 0.05
+            hist_sellout = float(np.clip(hist_sellout, 0.0, 1.0))
+
+            rows.append(
+                {
+                    "Year": year,
+                    "Matchup": f"{r.get('Team 1', '')} vs {r.get('Team 2', '')}",
+                    "Attendance": f"{att_h:,.0f}",
+                    "% Filled": f"{pct_fill_h:.1%}",
+                    "Avg Dist (mi)": f"{avg_dist_h:,.0f}",
+                    "Min Dist": f"{min_dist_h:,.0f}",
+                    "Imbalance": f"{dist_imb_h:,.0f}",
+                    "Power": power_h,
+                    "Fanbase (log)": f"{fan_log_h:.2f}",
+                    "AP Strength": f"{ap_str_h:.1f}",
+                    "Accessibility": hist_access,
+                    "TVI (Avg)": f"{avg_tvi_h:.0f}",
+                    "MIS": hist_mis,
+                    "SVS": hist_svs,
+                    "MFS": hist_mfs,
+                    "Interest": hist_interest,
+                    "Sellout Prob": f"{hist_sellout:.1%}",
+                }
+            )
+
+        # Add 2025 projection row
+        avg_tvi = 0  # will compute below in TVI section; placeholder
+        # We'll override TVI etc later; for table we can keep 0 now and update after calculating later,
+        # or recompute quickly here:
+        alumni1_cur = row1.get("Alumni Dispersion", "")
+        alumni2_cur = row2.get("Alumni Dispersion", "")
+        t1_tvi_cur = compute_tvi(
+            team1_miles,
+            t1_fanbase,
+            t1_brand,
+            t1_wins,
+            t1_ap_strength,
+            alumni1_cur,
+            conf1,
+        )
+        t2_tvi_cur = compute_tvi(
+            team2_miles,
+            t2_fanbase,
+            t2_brand,
+            t2_wins,
+            t2_ap_strength,
+            alumni2_cur,
+            conf2,
+        )
+        avg_tvi = (t1_tvi_cur + t2_tvi_cur) / 2
+
+        # We'll compute venue_access_score, mis, svs, mfs, interest_index, sellout_prob below
+        # but they are not yet defined here. To keep this table simple and avoid forward reference,
+        # we'll temporarily set them to 0 and then overwrite the last row after computing scores.
+        rows.append(
+            {
+                "Year": 2025,
+                "Matchup": f"{team1} vs {team2}",
+                "Attendance": f"{final_pred:,.0f}",
+                "% Filled": f"{pct_filled:.1%}",
+                "Avg Dist (mi)": f"{avg_distance:,.0f}",
+                "Min Dist": f"{distance_min:,.0f}",
+                "Imbalance": f"{distance_imbalance:,.0f}",
+                "Power": matchup_power,
+                "Fanbase (log)": f"{combined_fanbase_log:.2f}",
+                "AP Strength": f"{ap_strength_score:.1f}",
+                "Accessibility": 0,  # to be overwritten
+                "TVI (Avg)": f"{avg_tvi:.0f}",
+                "MIS": 0,
+                "SVS": 0,
+                "MFS": 0,
+                "Interest": 0,
+                "Sellout Prob": "",  # to be overwritten
+            }
+        )
+
+        hist_df = pd.DataFrame(rows)
+        st.dataframe(hist_df, use_container_width=True)
+
+    # =====================================================
+    # VENUE ACCESSIBILITY SCORE
     # =====================================================
 
     nearest_airport_name, airport_distance = find_nearest_airport(
@@ -748,12 +981,11 @@ if st.button("Run Prediction"):
         st.error("This venue is challenging for most fans to reach.")
 
     # =====================================================
-    # TEAM VISITATION INDEX (0–100)
+    # TEAM VISITATION INDEX (CURRENT MATCHUP)
     # =====================================================
 
     st.subheader("👥 Team Visitation Index")
 
-   
     t1_tvi = compute_tvi(
         miles=team1_miles,
         fanbase_size=t1_fanbase,
@@ -774,13 +1006,14 @@ if st.button("Run Prediction"):
         conference=row2.get("Football FBS Conference", ""),
     )
 
+    avg_tvi = (t1_tvi + t2_tvi) / 2
+
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         st.metric(f"{team1} Visitation Index", f"{t1_tvi} / 100")
     with col_t2:
         st.metric(f"{team2} Visitation Index", f"{t2_tvi} / 100")
 
-    avg_tvi = (t1_tvi + t2_tvi) / 2
     st.write(f"**Overall Matchup Travel Expectation:** {avg_tvi:.1f} / 100")
 
     # =====================================================
@@ -799,10 +1032,8 @@ if st.button("Run Prediction"):
         travel_pct = 0.70
 
     travel_pct *= (avg_tvi / 100)
-
     if local_flag == 1:
         travel_pct *= 0.8
-
     travel_pct = max(0.05, min(0.85, travel_pct))
 
     visitor_attendance = final_pred * travel_pct
@@ -882,20 +1113,11 @@ if st.button("Run Prediction"):
     else:
         svs += 2
 
-    avg_ap_strength = (t1_ap_strength + t2_ap_strength) / 2
-    combined_wins = t1_wins + t2_wins
-
-    if combined_wins >= 17:
-        svs += 8
-    elif combined_wins >= 14:
-        svs += 5
-    else:
-        svs += 2
-
-    if avg_ap_strength <= 20 and avg_ap_strength > 0:
-        svs += 7
-    elif avg_ap_strength <= 35:
-        svs += 4
+    if t1_ap_strength > 0 and t2_ap_strength > 0:
+        if ap_strength_score <= 20:
+            svs += 7
+        elif ap_strength_score <= 35:
+            svs += 4
 
     if final_pred > 60000:
         svs += 12
@@ -914,76 +1136,10 @@ if st.button("Run Prediction"):
         svs += 1
 
     svs = max(0, min(100, svs))
-
     st.metric("Sponsor Visibility Score", f"{svs} / 100")
 
-    if svs >= 85:
-        st.write("Exposure Classification: **Premium Event for Sponsors**")
-    elif svs >= 70:
-        st.write("Exposure Classification: **High-Value Matchup**")
-    elif svs >= 55:
-        st.write("Exposure Classification: **Moderate Visibility**")
-    else:
-        st.write("Exposure Classification: **Low to Medium Visibility**")
-
-    st.write("Key Visibility Drivers:")
-    if avg_brand > 60:
-        st.write("- Strong team brand presence")
-    if combined_fanbase_log > 5.7:
-        st.write("- Large combined fanbase reach")
-    if final_pred > 45000:
-        st.write("- High in-stadium exposure expected")
-    if matchup_power == 2:
-        st.write("- Premium P4 vs. P4 matchup")
-    if avg_tvi > 60:
-        st.write("- Highly engaged, traveling fanbases")
-
     # =====================================================
-    # CROWD COMPOSITION MODEL
-    # =====================================================
-
-    st.subheader("🧍‍♂️ Crowd Composition Breakdown")
-
-    traveling_fans = travel_pct
-
-    alumni_factor = 0.0
-    if "local" in str(row1.get("Alumni Dispersion", "")).lower():
-        alumni_factor += 0.15
-    if "local" in str(row2.get("Alumni Dispersion", "")).lower():
-        alumni_factor += 0.15
-    if "regional" in str(row1.get("Alumni Dispersion", "")).lower():
-        alumni_factor += 0.08
-    if "regional" in str(row2.get("Alumni Dispersion", "")).lower():
-        alumni_factor += 0.08
-    if "national" in str(row1.get("Alumni Dispersion", "")).lower():
-        alumni_factor += 0.03
-    if "national" in str(row2.get("Alumni Dispersion", "")).lower():
-        alumni_factor += 0.03
-
-    alumni_factor = min(alumni_factor, 0.35)
-
-    student_factor = 0.02
-    if team1_miles < 150:
-        student_factor += 0.03
-    if team2_miles < 150:
-        student_factor += 0.03
-
-    general_public = 1.0 - (traveling_fans + alumni_factor + student_factor)
-    general_public = max(0.05, general_public)
-
-    total_share = traveling_fans + alumni_factor + student_factor + general_public
-    traveling_fans /= total_share
-    alumni_factor /= total_share
-    student_factor /= total_share
-    general_public /= total_share
-
-    st.markdown(f"**Traveling Fans:** {traveling_fans*100:.1f}%")
-    st.markdown(f"**Local Alumni:** {alumni_factor*100:.1f}%")
-    st.markdown(f"**Students:** {student_factor*100:.1f}%")
-    st.markdown(f"**General Public / Neutral Fans:** {general_public*100:.1f}%")
-
-    # =====================================================
-    # MATCHUP FIT SCORE (0–100)
+    # MATCHUP FIT SCORE (MFS)
     # =====================================================
 
     st.subheader("🔗 Matchup Fit Score")
@@ -1031,10 +1187,10 @@ if st.button("Run Prediction"):
     ]:
         mfs += 8
 
-    conf1_lower = str(row1.get("Football FBS Conference", "")).lower()
-    conf2_lower = str(row2.get("Football FBS Conference", "")).lower()
+    conf1_lower = conf1.lower()
+    conf2_lower = conf2.lower()
 
-    if conf1_lower == conf2_lower:
+    if conf1_lower == conf2_lower and conf1_lower != "":
         mfs += 6
 
     if matchup_power == 2:
@@ -1067,7 +1223,15 @@ if st.button("Run Prediction"):
     elif avg_brand > 40:
         mfs += 4
 
-    big_name_list = ["texas", "michigan", "lsu", "ohio", "alabama", "georgia", "notre dame"]
+    big_name_list = [
+        "texas",
+        "michigan",
+        "lsu",
+        "ohio",
+        "alabama",
+        "georgia",
+        "notre dame",
+    ]
     if any(b in row1.get("Team Name", "").lower() for b in big_name_list):
         mfs += 6
     if any(b in row2.get("Team Name", "").lower() for b in big_name_list):
@@ -1087,32 +1251,10 @@ if st.button("Run Prediction"):
         mfs += 3
 
     mfs = max(0, min(100, mfs))
-
     st.metric("Matchup Fit Score", f"{mfs} / 100")
 
-    if mfs >= 85:
-        st.write("Fit Category: **Excellent Regional or Conference Matchup**")
-    elif mfs >= 70:
-        st.write("Fit Category: **Strong Overall Bowl Fit**")
-    elif mfs >= 55:
-        st.write("Fit Category: **Moderate Fit**")
-    else:
-        st.write("Fit Category: **Limited Natural Fit**")
-
-    st.write("Key Fit Drivers:")
-    if distance_min < 300:
-        st.write("- Teams are geographically well-aligned for travel")
-    if conf1_lower == conf2_lower:
-        st.write("- Conference familiarity enhances matchup relevance")
-    if avg_brand > 50:
-        st.write("- Strong brand presence supports bowl resonance")
-    if "local" in alumni1 or "local" in alumni2:
-        st.write("- Significant local alumni presence boosts turnout")
-    if ap_diff < 10:
-        st.write("- Competitive balance improves matchup interest")
-
     # =====================================================
-    # CONFIDENCE INTERVALS + MODEL STABILITY + RISK
+    # CONFIDENCE & RISK
     # =====================================================
 
     st.subheader("Uncertainty & Risk")
@@ -1177,7 +1319,7 @@ if st.button("Run Prediction"):
     )
 
     # =====================================================
-    # TRAVEL PROPENSITY + SELLOUT PROBABILITY
+    # TRAVEL PROPENSITY & SELLOUT PROBABILITY
     # =====================================================
 
     st.subheader("Travel Behavior & Sellout Likelihood")
@@ -1203,9 +1345,21 @@ if st.button("Run Prediction"):
             travel_score -= 1
 
     big_brands = [
-        "Michigan", "Ohio State", "Texas", "LSU", "Alabama", "Georgia",
-        "Notre Dame", "USC", "Oklahoma", "Penn State", "Oregon",
-        "Florida State", "Clemson", "Tennessee", "Auburn"
+        "Michigan",
+        "Ohio State",
+        "Texas",
+        "LSU",
+        "Alabama",
+        "Georgia",
+        "Notre Dame",
+        "USC",
+        "Oklahoma",
+        "Penn State",
+        "Oregon",
+        "Florida State",
+        "Clemson",
+        "Tennessee",
+        "Auburn",
     ]
     for t in [team1, team2]:
         if any(b.lower() in t.lower() for b in big_brands):
@@ -1228,14 +1382,16 @@ if st.button("Run Prediction"):
     st.write(f"**Estimated Sellout Probability:** {sellout_prob*100:.1f}%")
 
     # =====================================================
-    # HEAD-TO-HEAD INTEREST INDEX
+    # INTEREST INDEX
     # =====================================================
 
     st.subheader("Head-to-Head Interest Index")
 
     interest_index = 5.0
 
-    brand_count = sum(any(b.lower() in t.lower() for b in big_brands) for t in [team1, team2])
+    brand_count = sum(
+        any(b.lower() in t.lower() for b in big_brands) for t in [team1, team2]
+    )
     if brand_count == 2:
         interest_index += 2.0
     elif brand_count == 1:
@@ -1254,35 +1410,29 @@ if st.button("Run Prediction"):
     if B10_present:
         interest_index += 0.5
 
-    if ap_strength_score > np.percentile(ap_raw.dropna(), 75):
+    if ap_strength_score > 0 and ap_strength_score <= np.nanpercentile(ap_raw, 25):
         interest_index += 0.5
 
     interest_index = max(1.0, min(10.0, interest_index))
     st.write(f"**Head-to-Head Interest Index:** {interest_index:.1f} / 10")
 
     # =====================================================
-    # FEATURE BREAKDOWN PANEL
+    # FEATURE IMPORTANCE
     # =====================================================
 
     st.subheader("📊 Top Model Drivers for This Prediction")
 
     importances = model.feature_importances_
     feat_df = pd.DataFrame(
-        {
-            "Feature": feature_cols,
-            "Importance": importances,
-            "Value": feature_row.iloc[0].values,
-        }
-    )
-    feat_df = feat_df.sort_values("Importance", ascending=False)
-    top_feats = feat_df.head(10)
+        {"Feature": feature_cols, "Importance": importances, "Value": feature_row.iloc[0].values}
+    ).sort_values("Importance", ascending=False)
 
-    st.write("Top 10 Features by Importance:")
+    top_feats = feat_df.head(10)
     st.dataframe(top_feats)
     st.bar_chart(top_feats.set_index("Feature")["Importance"])
 
     # =====================================================
-    # ENHANCED KEY DRIVER SUMMARY (INCLUDING ALUMNI)
+    # KEY DRIVER SUMMARY
     # =====================================================
 
     st.subheader("Key Driver Summary")
@@ -1291,8 +1441,7 @@ if st.button("Run Prediction"):
 
     if distance_min < 100:
         drivers.append(
-            "At least one team is very close to the venue (<100 miles), "
-            "which strongly boosts attendance due to drive-in ease."
+            "At least one team is very close to the venue (<100 miles), which strongly boosts attendance."
         )
     elif distance_min < 250:
         drivers.append(
@@ -1326,8 +1475,7 @@ if st.button("Run Prediction"):
     if calib_combined_log_median is not None:
         if combined_fanbase_log > calib_combined_log_median + 0.2:
             drivers.append(
-                "The combined fanbase size is significantly larger than typical FBS matchups, "
-                "supporting stronger turnout."
+                "The combined fanbase size is significantly larger than typical FBS matchups, supporting stronger turnout."
             )
         elif combined_fanbase_log < calib_combined_log_median - 0.2:
             drivers.append(
@@ -1344,7 +1492,7 @@ if st.button("Run Prediction"):
         )
     else:
         drivers.append(
-            "Group of Five vs Group of Five matchups typically rely more on regional proximity for attendance strength."
+            "Group of Five vs Group of Five matchups rely more on regional proximity for attendance strength."
         )
 
     if SEC_present:
@@ -1371,30 +1519,25 @@ if st.button("Run Prediction"):
         if "local" in dispersion:
             if distance < local_threshold:
                 msg = (
-                    f"{team} has a strong local alumni base near the bowl site, "
-                    "which should meaningfully lift attendance."
+                    f"{team} has a strong local alumni base near the bowl site, which should meaningfully lift attendance."
                 )
             else:
                 msg = (
-                    f"{team} typically relies on local alumni turnout, "
-                    "but this bowl is farther from its primary alumni region."
+                    f"{team} typically relies on local alumni turnout, but this bowl is farther from its primary alumni region."
                 )
         elif "regional" in dispersion:
             if distance < 400:
                 msg = (
-                    f"{team}'s alumni network is regionally concentrated, "
-                    "and the relatively close travel distance should support strong turnout."
+                    f"{team}'s alumni network is regionally concentrated, and the relatively close travel distance should support strong turnout."
                 )
             else:
                 msg = (
-                    f"{team} has a regionally distributed alumni base, "
-                    "but the travel distance may moderate participation."
+                    f"{team} has a regionally distributed alumni base, but the travel distance may moderate participation."
                 )
         elif "national" in dispersion:
             if distance > 700:
                 msg = (
-                    f"{team} has a nationally dispersed alumni base, "
-                    "which helps offset the longer travel distance to the bowl."
+                    f"{team} has a nationally dispersed alumni base, which helps offset the longer travel distance to the bowl."
                 )
             else:
                 msg = (
@@ -1419,15 +1562,13 @@ if st.button("Run Prediction"):
         )
 
     if not drivers:
-        drivers.append(
-            "This matchup aligns with typical bowl attendance patterns in our model."
-        )
+        drivers.append("This matchup aligns with typical bowl attendance patterns in our model.")
 
     for d in drivers:
         st.write("• " + d)
 
     # =====================================================
-    # SAVE CONTEXT FOR OTHER PANELS & SCENARIO HISTORY
+    # SAVE CONTEXT FOR SCORECARDS & HISTORY
     # =====================================================
 
     if "scenario_history" not in st.session_state:
@@ -1462,184 +1603,7 @@ if st.button("Run Prediction"):
     }
 
 # =====================================================
-# 📚 HISTORICAL COMPARISON: SAME BOWL (2022, 2023, 2024)
-# =====================================================
-
-st.subheader("📚 Historical Comparison (Same Bowl: 2022–2024)")
-
-# Filter to same bowl name
-hist_bowl = calib[calib["Bowl Game Name"] == bowl_choice].copy()
-
-# Only real past games
-if "Year" in hist_bowl.columns:
-    hist_bowl = hist_bowl[hist_bowl["Year"].isin([2022, 2023, 2024])]
-
-num_games = len(hist_bowl)
-
-if num_games == 0:
-    st.write("No valid historical bowl data found for this matchup.")
-else:
-    rows = []
-
-    # ---- Loop Through Each Historical Year ----
-    for _, r in hist_bowl.iterrows():
-        year = int(r["Year"])
-
-        att = safe_num(r.get("Attendance"))
-        cap = safe_num(r.get("Venue Capacity"))
-        pct_fill = att / cap if cap > 0 else 0
-
-        # Extract historical features
-        avg_dist = safe_num(r.get("Avg Distace Traveled"))
-        min_dist = safe_num(r.get("Distance Minimum"))
-        dist_imb = safe_num(r.get("Distance Imbalance"))
-        fan_log = safe_num(r.get("Combined Fanbase (Log transformed)"))
-        ap_str = safe_num(r.get("AP Strength Score"))
-        m_power = safe_num(r.get("Matchup Power Score (2=P4vP4, 1=P4vG5, 0=G5vG5)"))
-
-        # ---- Recompute Advanced Metrics Using Matchup Scorecard Functions ----
-
-        # Venue Accessibility Score
-        v_lat = safe_num(r.get("Venue Lat"))
-        v_lon = safe_num(r.get("Venue Lon"))
-        t1_lat_h = safe_num(r.get("Team 1 Lat"))
-        t1_lon_h = safe_num(r.get("Team 1 Lon"))
-        t2_lat_h = safe_num(r.get("Team 2 Lat"))
-        t2_lon_h = safe_num(r.get("Team 2 Lon"))
-
-        if all(np.isfinite([t1_lat_h, t1_lon_h, v_lat, v_lon])):
-            t1_m_h = haversine(t1_lat_h, t1_lon_h, v_lat, v_lon)
-        else:
-            t1_m_h = np.nan
-
-        if all(np.isfinite([t2_lat_h, t2_lon_h, v_lat, v_lon])):
-            t2_m_h = haversine(t2_lat_h, t2_lon_h, v_lat, v_lon)
-        else:
-            t2_m_h = np.nan
-
-        nearest_hist_airport, hist_airport_dist = find_nearest_airport(v_lat, v_lon)
-
-        hist_access = compute_venue_accessibility_score(
-            cap,
-            t1_m_h if not np.isnan(t1_m_h) else 0,
-            t2_m_h if not np.isnan(t2_m_h) else 0,
-            r.get("Venue City", ""),
-            r.get("Venue State", ""),
-            hist_airport_dist
-        )
-
-        # ---- Historical TVI (Team Visitation Index) ----
-        conf1_h = r.get("Team 1 Conference", "")
-        conf2_h = r.get("Team 2 Conference", "")
-        alumni1 = r.get("Team 1 Alumni Dispersion", "")
-        alumni2 = r.get("Team 2 Alumni Dispersion", "")
-
-        t1_tvi_h = compute_tvi(
-            t1_m_h,
-            safe_num(r.get("Team 1 Fanbase")),
-            safe_num(r.get("Team 1 Brand Power")),
-            safe_num(r.get("Team 1 Wins")),
-            safe_num(r.get("Team 1 AP Strength")),
-            alumni1,
-            conf1_h
-        )
-
-        t2_tvi_h = compute_tvi(
-            t2_m_h,
-            safe_num(r.get("Team 2 Fanbase")),
-            safe_num(r.get("Team 2 Brand Power")),
-            safe_num(r.get("Team 2 Wins")),
-            safe_num(r.get("Team 2 AP Strength")),
-            alumni2,
-            conf2_h
-        )
-
-        avg_tvi_h = (t1_tvi_h + t2_tvi_h) / 2
-
-        # ---- Historical Market Impact Score (MIS) ----
-        hist_travel_pct = min(0.85, max(0.05, (avg_dist / 1000) * (avg_tvi_h/100)))
-        hist_mis = 50 + (10 if m_power == 2 else 4 if m_power == 1 else 0)
-        hist_mis += (6 if fan_log > 6.0 else 3)
-        hist_mis += (10 if att > 45000 else 5 if att > 30000 else 2)
-        hist_mis = max(0, min(100, hist_mis))
-
-        # ---- Historical Sponsor Visibility Score (SVS) ----
-        hist_svs = 50
-        if fan_log > 6.0:
-            hist_svs += 10
-        if m_power == 2:
-            hist_svs += 10
-        if att > 45000:
-            hist_svs += 8
-        hist_svs = max(0, min(100, hist_svs))
-
-        # ---- Historical Matchup Fit Score (MFS) ----
-        hist_mfs = 50
-        if min_dist < 200:
-            hist_mfs += 10
-        if m_power == 2:
-            hist_mfs += 12
-        hist_mfs = max(0, min(100, hist_mfs))
-
-        # ---- Interest Index ----
-        hist_interest = 5 + (1 if m_power >= 1 else 0)
-        hist_interest += (1 if fan_log > 6.0 else 0)
-        hist_interest = max(1, min(10, hist_interest))
-
-        # ---- Sellout Probability ----
-        hist_sellout = pct_fill
-        if m_power == 2:
-            hist_sellout += 0.05
-        hist_sellout = float(np.clip(hist_sellout, 0, 1))
-
-        # Add row to table
-        rows.append({
-            "Year": year,
-            "Matchup": f"{r.get('Team 1')} vs {r.get('Team 2')}",
-            "Attendance": f"{att:,.0f}",
-            "% Filled": f"{pct_fill:.1%}",
-            "Avg Dist (mi)": f"{avg_dist:,.0f}",
-            "Min Dist": f"{min_dist:,.0f}",
-            "Imbalance": f"{dist_imb:,.0f}",
-            "Power": m_power,
-            "Fanbase (log)": f"{fan_log:.2f}",
-            "AP Strength": f"{ap_str:.1f}",
-            "Accessibility": hist_access,
-            "TVI (Avg)": f"{avg_tvi_h:.0f}",
-            "MIS": hist_mis,
-            "SVS": hist_svs,
-            "MFS": hist_mfs,
-            "Interest": hist_interest,
-            "Sellout Prob": f"{hist_sellout:.1%}"
-        })
-
-    # ---- Add 2025 Projection Row ----
-    rows.append({
-        "Year": 2025,
-        "Matchup": f"{team1} vs {team2}",
-        "Attendance": f"{final_pred:,.0f}",
-        "% Filled": f"{pct_filled:.1%}",
-        "Avg Dist (mi)": f"{avg_distance:,.0f}",
-        "Min Dist": f"{distance_min:,.0f}",
-        "Imbalance": f"{distance_imbalance:,.0f}",
-        "Power": matchup_power,
-        "Fanbase (log)": f"{combined_fanbase_log:.2f}",
-        "AP Strength": f"{ap_strength_score:.1f}",
-        "Accessibility": venue_access_score,
-        "TVI (Avg)": f"{avg_tvi:.0f}",
-        "MIS": mis,
-        "SVS": svs,
-        "MFS": mfs,
-        "Interest": interest_index,
-        "Sellout Prob": f"{sellout_prob:.1%}"
-    })
-
-    enhanced_hist_df = pd.DataFrame(rows)
-
-    st.dataframe(enhanced_hist_df, use_container_width=True)
-
-# =====================================================
-# VENUE SCENARIO: MOVE BOWL TO ANOTHER STADIUM
+# 📍 Venue Scenario: Move This Bowl to Another Stadium
 # =====================================================
 
 st.header("📍 Venue Scenario: Move This Bowl to Another Stadium")
@@ -1653,11 +1617,13 @@ alt_venue_choice = st.selectbox(
 )
 
 if st.button("Run Alternative Venue Scenario"):
+    # --- look up alternative venue basics ---
     alt_venue_row = venues[venues[VENUE_COL] == alt_venue_choice].iloc[0]
     alt_capacity = safe_num(alt_venue_row["Football Capacity"])
     alt_lat = safe_num(alt_venue_row["Lat"])
     alt_lon = safe_num(alt_venue_row["Lon"])
 
+    # --- recompute team → venue distances for alt venue ---
     if all(np.isfinite([t1_lat, t1_lon, alt_lat, alt_lon])):
         alt_t1_miles = haversine(t1_lat, t1_lon, alt_lat, alt_lon)
     else:
@@ -1673,12 +1639,14 @@ if st.button("Run Alternative Venue Scenario"):
     alt_distance_imbalance = abs(alt_t1_miles - alt_t2_miles)
     alt_local_flag = 1 if alt_distance_min <= local_threshold else 0
 
+    # --- venue tier for alt venue (fallback to current venue_tier) ---
     calib_for_venue = calib[calib["Venue"] == alt_venue_choice]
     if "Venue Tier" in calib.columns and not calib_for_venue.empty:
         alt_venue_tier = safe_num(calib_for_venue["Venue Tier"].iloc[0])
     else:
         alt_venue_tier = venue_tier
 
+    # --- build feature row for alt venue scenario ---
     alt_row_data = dict(row_data)
     alt_row_data.update(
         {
@@ -1706,6 +1674,7 @@ if st.button("Run Alternative Venue Scenario"):
         columns=feature_cols,
     )
 
+    # --- model prediction + final attendance using same logic as main prediction ---
     alt_raw = float(model.predict(alt_feature_row)[0])
 
     alt_final = compute_final_attendance(
@@ -1724,7 +1693,7 @@ if st.button("Run Alternative Venue Scenario"):
     )
 
 # =====================================================
-# TEAM & MATCHUP SCORECARDS
+# 🧾 Team & Matchup Scorecards
 # =====================================================
 
 st.header("Team & Matchup Scorecards")
@@ -1770,7 +1739,7 @@ else:
     st.write("Run a prediction to populate scorecards.")
 
 # =====================================================
-# SCENARIO SAVING
+# 💾 Save Scenario
 # =====================================================
 
 st.header("💾 Save Scenario")
@@ -1825,5 +1794,4 @@ try:
     st.dataframe(saved[saved["folder"] == selected_folder])
 except FileNotFoundError:
     st.write("No scenarios saved yet.")
-
 
