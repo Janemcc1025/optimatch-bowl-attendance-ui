@@ -943,21 +943,6 @@ if st.button("Run Prediction"):
         hist_df = pd.DataFrame(rows)
         st.dataframe(hist_df, use_container_width=True)
 
-# =====================================================
-# 📚 UPDATE 2025 ROW IN HISTORICAL COMPARISON
-# =====================================================
-
-hist_df.loc[hist_df['Year'] == 2025, 'Accessibility'] = venue_access_score
-hist_df.loc[hist_df['Year'] == 2025, 'TVI (Avg)'] = f"{avg_tvi:.0f}"
-hist_df.loc[hist_df['Year'] == 2025, 'MIS'] = mis
-hist_df.loc[hist_df['Year'] == 2025, 'SVS'] = svs
-hist_df.loc[hist_df['Year'] == 2025, 'MFS'] = mfs
-hist_df.loc[hist_df['Year'] == 2025, 'Interest'] = f"{interest_index:.1f}"
-hist_df.loc[hist_df['Year'] == 2025, 'Sellout Prob'] = f"{sellout_prob:.1%}"
-
-st.subheader("📚 Final Historical Comparison (Updated)")
-st.dataframe(hist_df, use_container_width=True)
-
 
     # =====================================================
     # VENUE ACCESSIBILITY SCORE
