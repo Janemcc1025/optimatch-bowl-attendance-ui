@@ -339,7 +339,6 @@ st.subheader("🗺️ Travel Routes & Estimated Travel Time")
 # ESTIMATED TRAVEL TIME PANEL
 # ============================
 
-st.markdown("### ⏱ Estimated Travel Time")
 
 colA, colB = st.columns(2)
 
